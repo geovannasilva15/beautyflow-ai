@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, timezone
 import re
 
 from sqlmodel import Session, select
@@ -49,7 +49,7 @@ def first_active_professional(session: Session) -> Professional | None:
 
 
 def parse_requested_datetime(text: str) -> datetime:
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     text_lower = text.lower()
 
     if "amanhã" in text_lower or "amanha" in text_lower:
@@ -72,7 +72,7 @@ def parse_requested_datetime(text: str) -> datetime:
     else:
         hour, minute = 14, 0
 
-    return datetime.combine(base_date, time(hour, minute))
+    return datetime.combine(base_date, time(hour, minute), tzinfo=timezone.utc)
 
 
 def has_conflict(session: Session, professional_id: int, scheduled_at: datetime) -> bool:

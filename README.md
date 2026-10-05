@@ -85,10 +85,12 @@ tests/           testes automatizados
 ## Testes
 
 ```bash
-python -m compileall app frontend
-pytest
+python -m compileall app frontend tests seed.py
+pytest -q
 ```
 
+Os testes usam um banco SQLite isolado e cobrem saúde da API, criação de
+agendamentos, simulação de atendimento e campanhas.
 ## Status
 
 Protótipo funcional para apresentação e execução local. Integrações externas, autenticação por usuário e infraestrutura em nuvem fazem parte da evolução planejada.
@@ -96,4 +98,3 @@ Protótipo funcional para apresentação e execução local. Integrações exter
 ## Autoria
 
 [Geovanna Eduarda da Silva](https://github.com/geovannasilva15)
-743a689c4329fc98bd07f3796f28dc62ffacd18c

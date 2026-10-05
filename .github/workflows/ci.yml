@@ -25,7 +25,12 @@ jobs:
           pip install -r requirements.txt
 
       - name: Compile project
-        run: python -m compileall app frontend
+        run: python -m compileall app frontend tests seed.py
+
+      - name: Validate database seed
+        env:
+          DATABASE_URL: sqlite:///ci_validation.db
+        run: python seed.py
 
       - name: Run tests
-        run: pytest
+        run: pytest -q
