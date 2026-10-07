@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlmodel import Session, select
 
+from app.core.time import utc_now
 from app.db.database import create_db_and_tables, engine
 from app.db.models import Appointment, Campaign, Client, Professional, Service
 from data.sample_data import SAMPLE_CLIENTS, SAMPLE_PROFESSIONALS, SAMPLE_SERVICES
@@ -38,7 +39,7 @@ def seed() -> None:
                     client_id=clients[0].id,
                     service_id=services[0].id,
                     professional_id=professionals[0].id,
-                    scheduled_at=datetime.utcnow() + timedelta(days=1, hours=3),
+                    scheduled_at=utc_now() + timedelta(days=1, hours=3),
                     final_price=services[0].price,
                     notes="Agendamento demo criado pelo seed.",
                 )
@@ -48,7 +49,7 @@ def seed() -> None:
                     client_id=clients[-1].id,
                     service_id=services[-1].id,
                     professional_id=professionals[-1].id,
-                    scheduled_at=datetime.utcnow() + timedelta(days=2, hours=5),
+                    scheduled_at=utc_now() + timedelta(days=2, hours=5),
                     final_price=services[-1].price,
                     notes="Retorno para acompanhamento facial.",
                 )
@@ -61,7 +62,7 @@ def seed() -> None:
                     title="Promoção de hidratação",
                     message="Oi, tudo bem? Essa semana temos uma condição especial para hidratação profunda. Quer reservar um horário?",
                     target_audience="cabelo",
-                    scheduled_at=datetime.utcnow() + timedelta(days=1),
+                    scheduled_at=utc_now() + timedelta(days=1),
                     status="scheduled",
                 )
             )

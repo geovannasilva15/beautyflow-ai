@@ -6,6 +6,8 @@ from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
+from app.core.time import utc_now
+
 
 class AppointmentStatus(str, Enum):
     scheduled = "scheduled"
@@ -39,7 +41,7 @@ class Client(SQLModel, table=True):
     skin_type: Optional[str] = None
     interests: Optional[str] = None
     notes: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class Service(SQLModel, table=True):
@@ -51,7 +53,7 @@ class Service(SQLModel, table=True):
     price: float = 0.0
     tags: Optional[str] = None
     active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class Professional(SQLModel, table=True):
@@ -59,7 +61,7 @@ class Professional(SQLModel, table=True):
     name: str
     specialty: str
     active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class Appointment(SQLModel, table=True):
@@ -71,7 +73,7 @@ class Appointment(SQLModel, table=True):
     final_price: float = 0.0
     status: AppointmentStatus = Field(default=AppointmentStatus.scheduled, index=True)
     notes: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class ConversationMessage(SQLModel, table=True):
@@ -83,7 +85,7 @@ class ConversationMessage(SQLModel, table=True):
     ai_response: str
     action_status: str = "simulated"
     appointment_id: Optional[int] = Field(default=None, foreign_key="appointment.id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class Campaign(SQLModel, table=True):
@@ -93,7 +95,7 @@ class Campaign(SQLModel, table=True):
     target_audience: Optional[str] = None
     scheduled_at: Optional[datetime] = None
     status: CampaignStatus = Field(default=CampaignStatus.draft, index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class ScheduledMessage(SQLModel, table=True):
@@ -104,4 +106,4 @@ class ScheduledMessage(SQLModel, table=True):
     message: str
     scheduled_at: Optional[datetime] = None
     status: str = "pending"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)

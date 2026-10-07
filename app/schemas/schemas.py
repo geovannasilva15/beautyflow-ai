@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from app.core.time import ensure_utc
 from app.db.models import AppointmentStatus, CampaignStatus, ConversationIntent
 
 
@@ -60,6 +61,11 @@ class AppointmentCreate(BaseModel):
     final_price: Optional[float] = None
     notes: Optional[str] = None
 
+    @field_validator("scheduled_at")
+    @classmethod
+    def normalize_scheduled_at(cls, value: datetime) -> datetime:
+        return ensure_utc(value)
+
 
 class AppointmentUpdateStatus(BaseModel):
     status: AppointmentStatus
@@ -108,6 +114,11 @@ class CampaignCreate(BaseModel):
     scheduled_at: Optional[datetime] = None
     status: CampaignStatus = CampaignStatus.scheduled
 
+    @field_validator("scheduled_at")
+    @classmethod
+    def normalize_scheduled_at(cls, value: Optional[datetime]) -> Optional[datetime]:
+        return ensure_utc(value) if value else None
+
 
 class CampaignUpdate(BaseModel):
     title: Optional[str] = None
@@ -115,3 +126,8 @@ class CampaignUpdate(BaseModel):
     target_audience: Optional[str] = None
     scheduled_at: Optional[datetime] = None
     status: Optional[CampaignStatus] = None
+
+    @field_validator("scheduled_at")
+    @classmethod
+    def normalize_scheduled_at(cls, value: Optional[datetime]) -> Optional[datetime]:
+        return ensure_utc(value) if value else None

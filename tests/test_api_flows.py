@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
-from app.main import app
-
-client = TestClient(app)
-
-
-def create_base_records() -> tuple[int, int, int]:
-    suffix = str(int(datetime.utcnow().timestamp() * 1000))
+def create_base_records(client: TestClient) -> tuple[int, int, int]:
+    suffix = str(int(datetime.now(timezone.utc).timestamp() * 1000))
 
     client_response = client.post(
         "/api/clients",
@@ -52,15 +47,16 @@ def create_base_records() -> tuple[int, int, int]:
     )
 
 
-def test_create_appointment_flow() -> None:
-    client_id, service_id, professional_id = create_base_records()
+def test_create_appointment_flow(client: TestClient) -> None:
+    client_id, service_id, professional_id = create_base_records(client)
     response = client.post(
         "/api/appointments",
         json={
             "client_id": client_id,
             "service_id": service_id,
             "professional_id": professional_id,
-            "scheduled_at": (datetime.utcnow() + timedelta(days=3)).isoformat(),
+            # The Streamlit form sends a local ISO timestamp without a timezone.
+            "scheduled_at": (datetime.now() + timedelta(days=3)).isoformat(),
             "final_price": 120.0,
             "notes": "Teste de criação de agendamento.",
         },
@@ -69,8 +65,8 @@ def test_create_appointment_flow() -> None:
     assert response.json()["client_id"] == client_id
 
 
-def test_whatsapp_simulation_flow() -> None:
-    create_base_records()
+def test_whatsapp_simulation_flow(client: TestClient) -> None:
+    create_base_records(client)
     response = client.post(
         "/api/whatsapp/simulate",
         json={
@@ -87,15 +83,15 @@ def test_whatsapp_simulation_flow() -> None:
     assert "action_suggested" in payload
 
 
-def test_campaign_simulation_flow() -> None:
-    create_base_records()
+def test_campaign_simulation_flow(client: TestClient) -> None:
+    create_base_records(client)
     campaign_response = client.post(
         "/api/campaigns",
         json={
             "title": "Campanha Teste",
             "message": "Mensagem de campanha criada em teste.",
             "target_audience": "cabelo",
-            "scheduled_at": (datetime.utcnow() + timedelta(days=1)).isoformat(),
+            "scheduled_at": (datetime.now() + timedelta(days=1)).isoformat(),
             "status": "scheduled",
         },
     )
