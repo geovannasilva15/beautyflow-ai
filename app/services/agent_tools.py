@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+import hashlib
+import json
+import secrets
 from typing import Literal
 
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from app.db.models import Appointment, AppointmentStatus, Client, Professional, Service
+from app.db.models import AgentConfirmation, Appointment, AppointmentStatus, Client, Professional, Service
 from app.services.appointment_service import appointment_slot_error, get_available_slots
-from app.core.time import utc_to_business
+from app.core.time import ensure_utc, utc_now, utc_to_business
 
 
 class AgentToolRequest(BaseModel):
@@ -20,7 +23,45 @@ class AgentToolRequest(BaseModel):
     scheduled_at: datetime | None = None
     query: str | None = Field(default=None, max_length=120)
     confirm: bool = False
+    confirmation_token: str | None = Field(default=None, max_length=200)
 
+
+
+def _fingerprint(request: AgentToolRequest) -> str:
+    data = request.model_dump(mode="json", exclude={"confirm", "confirmation_token"}, exclude_none=True)
+    if data.get("scheduled_at"):
+        from app.core.time import local_datetime_to_utc
+        data["scheduled_at"] = local_datetime_to_utc(request.scheduled_at).isoformat()
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+
+def _preview_confirmation(session: Session, request: AgentToolRequest, preview: dict) -> dict:
+    token = secrets.token_urlsafe(32)
+    session.add(AgentConfirmation(
+        token_hash=hashlib.sha256(token.encode()).hexdigest(),
+        action_hash=_fingerprint(request),
+        expires_at=utc_now() + timedelta(minutes=10),
+    ))
+    session.commit()
+    return {"tool": request.tool, "status": "confirmation_required",
+            "confirmation_token": token, "expires_in_seconds": 600, **preview}
+
+
+def _consume_confirmation(session: Session, request: AgentToolRequest) -> bool:
+    if not request.confirmation_token:
+        return False
+    token_hash = hashlib.sha256(request.confirmation_token.encode()).hexdigest()
+    confirmation = session.exec(
+        select(AgentConfirmation).where(AgentConfirmation.token_hash == token_hash)
+    ).first()
+    if not confirmation or confirmation.consumed or ensure_utc(confirmation.expires_at) <= utc_now():
+        return False
+    if confirmation.action_hash != _fingerprint(request):
+        return False
+    confirmation.consumed = True
+    session.add(confirmation)
+    session.flush()
+    return True
 
 def execute_agent_tool(session: Session, request: AgentToolRequest) -> dict:
     """Auditable deterministic tools; LLM-generated actions must never bypass confirmation."""
@@ -72,7 +113,9 @@ def execute_agent_tool(session: Session, request: AgentToolRequest) -> dict:
             "price": service.price,
         }
         if not request.confirm:
-            return {"tool": request.tool, "status": "confirmation_required", "preview": preview}
+            return _preview_confirmation(session, request, {"preview": preview})
+        if not _consume_confirmation(session, request):
+            return {"tool": request.tool, "status": "invalid_confirmation"}
         booking = Appointment(
             client_id=client.id,
             service_id=service.id,
@@ -95,7 +138,9 @@ def execute_agent_tool(session: Session, request: AgentToolRequest) -> dict:
         if booking.status != AppointmentStatus.scheduled:
             return {"tool": request.tool, "status": "invalid_status"}
         if not request.confirm:
-            return {"tool": request.tool, "status": "confirmation_required", "appointment_id": booking.id}
+            return _preview_confirmation(session, request, {"appointment_id": booking.id})
+        if not _consume_confirmation(session, request):
+            return {"tool": request.tool, "status": "invalid_confirmation"}
         booking.status = AppointmentStatus.canceled
         session.add(booking)
         session.commit()
