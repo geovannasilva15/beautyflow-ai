@@ -2,9 +2,9 @@ name: BeautyFlow AI CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/platform-foundations]
   pull_request:
-    branches: [main]
+    branches: [main, feature/scheduling-v2]
 
 jobs:
   test:
