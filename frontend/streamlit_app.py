@@ -29,8 +29,8 @@ if not st.session_state.authenticated:
     st.stop()
 
 PAGES = {
-    "Início": home.render,
     "Dashboard": dashboard.render,
+    "Início": home.render,
     "Agenda": agenda.render,
     "Clientes": clientes.render,
     "Serviços": servicos.render,
@@ -50,7 +50,12 @@ with st.sidebar:
     st.write(f"**Usuária:** {user.get('name', 'Demo')}")
     st.caption(user.get("role", "Demo"))
     st.write("---")
-    selected_page = st.radio("Menu", list(PAGES.keys()), label_visibility="collapsed")
+    if st.session_state.get("bf_page") not in PAGES:
+        st.session_state["bf_page"] = "Dashboard"
+    selected_page = st.radio(
+        "Menu", list(PAGES.keys()), label_visibility="collapsed",
+        key="bf_page",
+    )
     st.write("---")
     if api_online():
         st.success("API conectada")
