@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.core.api_access import require_api_key
 from app.core.config import get_settings
 from app.db.database import create_db_and_tables
 
@@ -33,4 +34,4 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(router, prefix=settings.api_prefix)
+app.include_router(router, prefix=settings.api_prefix, dependencies=[Depends(require_api_key)])
