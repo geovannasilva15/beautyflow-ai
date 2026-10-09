@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from sqlmodel import Session, select
 
-from app.core.time import utc_now
+from app.core.time import business_now, local_datetime_to_utc
 from app.db.database import create_db_and_tables, engine
 from app.db.models import Appointment, Campaign, Client, Professional, Service
 from data.sample_data import SAMPLE_CLIENTS, SAMPLE_PROFESSIONALS, SAMPLE_SERVICES
+
+
+def _future_local_slot(days: int, hour: int) -> datetime:
+    target_date = business_now().date() + timedelta(days=days)
+    return local_datetime_to_utc(datetime.combine(target_date, time(hour, 0)))
 
 
 def seed() -> None:
@@ -39,7 +44,7 @@ def seed() -> None:
                     client_id=clients[0].id,
                     service_id=services[0].id,
                     professional_id=professionals[0].id,
-                    scheduled_at=utc_now() + timedelta(days=1, hours=3),
+                    scheduled_at=_future_local_slot(1, 14),
                     final_price=services[0].price,
                     notes="Agendamento demo criado pelo seed.",
                 )
@@ -49,7 +54,7 @@ def seed() -> None:
                     client_id=clients[-1].id,
                     service_id=services[-1].id,
                     professional_id=professionals[-1].id,
-                    scheduled_at=utc_now() + timedelta(days=2, hours=5),
+                    scheduled_at=_future_local_slot(2, 16),
                     final_price=services[-1].price,
                     notes="Retorno para acompanhamento facial.",
                 )
@@ -62,7 +67,7 @@ def seed() -> None:
                     title="Promoção de hidratação",
                     message="Oi, tudo bem? Essa semana temos uma condição especial para hidratação profunda. Quer reservar um horário?",
                     target_audience="cabelo",
-                    scheduled_at=utc_now() + timedelta(days=1),
+                    scheduled_at=_future_local_slot(1, 10),
                     status="scheduled",
                 )
             )

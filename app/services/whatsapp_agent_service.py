@@ -3,14 +3,20 @@ from __future__ import annotations
 from sqlmodel import Session
 
 from app.db.models import ConversationIntent, ConversationMessage
-from app.services.appointment_service import cancel_latest_appointment, create_appointment_from_message
+from app.services.appointment_service import (
+    cancel_latest_appointment,
+    create_appointment_from_message,
+    find_service_from_text,
+    reschedule_latest_appointment,
+)
 
 
 def detect_intent(message: str) -> ConversationIntent:
     text = message.lower()
-    if any(word in text for word in ["cancelar", "desmarcar", "não vou", "nao vou", "remarcar"]):
-        if any(word in text for word in ["remarcar", "reagendar", "outro horário", "outro horario"]):
-            return ConversationIntent.reschedule
+
+    if any(word in text for word in ["remarcar", "reagendar", "outro horário", "outro horario"]):
+        return ConversationIntent.reschedule
+    if any(word in text for word in ["cancelar", "desmarcar", "não vou", "nao vou"]):
         return ConversationIntent.cancel
     if any(word in text for word in ["marcar", "agendar", "horário", "horario", "tem vaga", "disponível", "disponivel"]):
         return ConversationIntent.schedule
@@ -30,24 +36,36 @@ def process_whatsapp_message(session: Session, client_name: str, client_phone: s
     if intent == ConversationIntent.schedule:
         response, appointment_id = create_appointment_from_message(session, client_name, client_phone, message)
         action_status = "appointment_created" if appointment_id else "appointment_suggestion"
-        action_suggested = "Verificar disponibilidade, sugerir horário e criar agendamento quando possível."
+        action_suggested = "Validar serviço, profissional e disponibilidade antes de criar o agendamento."
+
     elif intent == ConversationIntent.cancel:
         response, appointment_id = cancel_latest_appointment(session, client_phone)
         action_status = "appointment_canceled" if appointment_id else "cancel_not_found"
-        action_suggested = "Cancelar agendamento ativo ou pedir mais dados para localizar a reserva."
+        action_suggested = "Cancelar o próximo agendamento futuro ou pedir mais dados para localizar a reserva."
+
     elif intent == ConversationIntent.reschedule:
-        response = "Claro! Posso te ajudar a reagendar. Tenho opções amanhã às 10h, 14h ou 16h. Qual fica melhor?"
-        action_status = "reschedule_suggested"
-        action_suggested = "Oferecer novos horários e atualizar o status do agendamento anterior."
+        response, appointment_id, changed = reschedule_latest_appointment(session, client_phone, message)
+        action_status = "appointment_rescheduled" if changed else "reschedule_suggested"
+        action_suggested = "Sugerir horários realmente livres e atualizar o agendamento quando a cliente confirmar."
+
     elif intent == ConversationIntent.promotion:
-        response = "Temos campanhas especiais disponíveis. Posso te enviar as promoções da semana e reservar um horário para você."
-        action_suggested = "Enviar campanha ativa e transformar o interesse em agendamento."
+        response = "Temos campanhas especiais disponíveis. Posso te ajudar a escolher um serviço e verificar horários livres."
+        action_suggested = "Apresentar campanha ativa e transformar o interesse em agendamento."
+
     elif intent == ConversationIntent.question:
-        response = "Posso te ajudar! Temos serviços de beleza, estética e bem-estar. Quer saber valores ou horários disponíveis?"
-        action_suggested = "Responder a dúvida, indicar serviço relacionado e oferecer próximo passo."
+        service = find_service_from_text(session, message)
+        if service:
+            response = (
+                f"O serviço {service.name} custa R$ {service.price:.2f} e dura cerca de "
+                f"{service.duration_minutes} minutos. Quer que eu verifique horários disponíveis?"
+            )
+        else:
+            response = "Posso te ajudar com valores e serviços. Qual procedimento você quer consultar?"
+        action_suggested = "Responder com dados cadastrados no sistema e oferecer o próximo passo."
+
     else:
-        response = "Oi! Sou a assistente do BeautyFlow AI. Posso ajudar com agendamentos, cancelamentos, valores e promoções."
-        action_suggested = "Classificar manualmente a conversa se a intenção continuar indefinida."
+        response = "Oi! Sou a assistente do BeautyFlow AI. Posso ajudar com agendamentos, reagendamentos, cancelamentos, valores e promoções."
+        action_suggested = "Pedir mais contexto se a intenção continuar indefinida."
 
     record = ConversationMessage(
         client_name=client_name,
