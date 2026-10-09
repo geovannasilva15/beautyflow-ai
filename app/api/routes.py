@@ -30,6 +30,7 @@ from app.services.analytics_service import get_dashboard_metrics
 from app.services.appointment_service import appointment_slot_error, get_available_slots
 from app.services.campaign_service import create_campaign, schedule_campaign_messages
 from app.services.crm_service import get_crm_metrics
+from app.services.agent_tools import AgentToolRequest, execute_agent_tool
 from app.services.whatsapp_agent_service import process_whatsapp_message
 
 router = APIRouter()
@@ -298,6 +299,11 @@ def schedule_campaign(campaign_id: int, session: Session = Depends(get_session))
 @router.post("/campaigns/{campaign_id}/simulate-send")
 def simulate_campaign_send(campaign_id: int, session: Session = Depends(get_session)) -> dict:
     return schedule_campaign_messages(session, campaign_id)
+
+
+@router.post("/agent/tools")
+def agent_tools(payload: AgentToolRequest, session: Session = Depends(get_session)) -> dict:
+    return execute_agent_tool(session, payload)
 
 
 @router.get("/crm/summary")
