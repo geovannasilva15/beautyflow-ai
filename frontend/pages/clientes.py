@@ -3,12 +3,19 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from frontend.api_client import api_delete, api_get, api_post, api_put
+from frontend.api_client import api_delete, api_get, api_post, api_put, format_currency
 from frontend.components import page_header
 
 
 def render() -> None:
-    page_header("Clientes", "Cadastre, busque, edite e gerencie clientes.")
+    st.markdown('<div class="bf-eyebrow">BEAUTYFLOW / CLIENTES</div><h1 class="bf-title">Relacionamentos que florescem.</h1><p class="bf-subtitle">Conheça suas clientes, acompanhe visitas e fortaleça a fidelização.</p>', unsafe_allow_html=True)
+    crm = api_get("/crm/summary")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Clientes cadastrados", crm["total_clients"])
+    m2.metric("Clientes recorrentes", crm["returning_clients"])
+    m3.metric("Clientes inativos", crm["inactive_clients"])
+    crm_by_id = {c["client_id"]: c for c in crm["customers"]}
+    st.write("")
     with st.expander("Cadastrar novo cliente", expanded=True):
         with st.form("client_create"):
             c1, c2, c3 = st.columns(3)
@@ -36,10 +43,20 @@ def render() -> None:
     if search:
         s = search.lower()
         df = df[df.apply(lambda row: s in " ".join(str(v).lower() for v in row.values), axis=1)]
+    st.caption(f"{len(df)} cliente(s) encontrado(s)")
     for _, client in df.iterrows():
         client_id = int(client["id"])
         with st.container(border=True):
             st.markdown(f"### 👤 {client['name']}")
+            profile = crm_by_id.get(client_id, {})
+            x1, x2, x3 = st.columns(3)
+            x1.metric("Visitas concluídas", profile.get("completed_visits", 0))
+            x2.metric("Total realizado", format_currency(profile.get("total_spent", 0)))
+            x3.metric("Serviço favorito", profile.get("favorite_service") or "—")
+            if profile.get("last_visit"):
+                st.caption("Última visita registrada: " + profile["last_visit"][:10])
+            if profile.get("inactive"):
+                st.caption("Sem visitas concluídas nos últimos 60 dias.")
             st.write(f"**Telefone:** {client.get('phone', '')}")
             st.write(f"**E-mail:** {client.get('email') or 'Não informado'}")
             st.write(f"**Interesses:** {client.get('interests') or 'Não informado'}")
