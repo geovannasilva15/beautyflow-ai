@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
 
 from frontend.api_client import BeautyFlowAPIError, api_get, api_patch, api_post, format_currency
-from frontend.components import page_header
+from frontend.pages.dashboard import _calendar, _local_date, _local_time
+
+TZ = ZoneInfo('America/Sao_Paulo')
 
 STATUS_OPTIONS = {
     "Agendado": "scheduled",
@@ -19,7 +22,7 @@ STATUS_LABELS = {value: label for label, value in STATUS_OPTIONS.items()}
 
 
 def render() -> None:
-    page_header("Agenda inteligente", "Crie, acompanhe e atualize os atendimentos do BeautyFlow AI.")
+    st.markdown('<div class="bf-eyebrow">BEAUTYFLOW / AGENDA</div><h1 class="bf-title">Sua agenda, no seu ritmo.</h1><p class="bf-subtitle">Organize atendimentos e encontre horários livres.</p>', unsafe_allow_html=True)
 
     clients = api_get("/clients")
     services = api_get("/services")
@@ -40,7 +43,7 @@ def render() -> None:
                 selected_client = c1.selectbox("Cliente", list(client_map.keys()))
                 selected_service = c2.selectbox("Serviço", list(service_map.keys()))
                 selected_professional = c3.selectbox("Profissional", list(professional_map.keys()))
-                scheduled_date = c1.date_input("Data", value=datetime.now().date() + timedelta(days=1))
+                scheduled_date = c1.date_input("Data", value=datetime.now(TZ).date() + timedelta(days=1))
                 scheduled_time = c2.time_input("Horário", value=time(14, 0))
                 final_price = c3.number_input(
                     "Preço final",
@@ -86,8 +89,13 @@ def render() -> None:
                     st.caption("Horários livres nessa data: " + " · ".join(labels))
                 else:
                     st.caption("Nenhum horário livre encontrado para essa combinação.")
-            except BeautyFlowAPIError:
-                pass
+            except BeautyFlowAPIError as exc:
+                st.warning(f"Não foi possível consultar horários livres: {exc}")
+
+    st.markdown("### Visão da agenda")
+    with st.container(border=True):
+        calendar_date = st.date_input("Selecionar mês", value=datetime.now(TZ).date(), format="DD/MM/YYYY", key="agenda_calendar_month")
+        st.markdown(_calendar(calendar_date.year, calendar_date.month, appointments, {c["id"]: c["name"] for c in clients}), unsafe_allow_html=True)
 
     st.markdown("### Agendamentos")
     appointment_df = pd.DataFrame(appointments)
@@ -105,8 +113,22 @@ def render() -> None:
     appointment_df["status_nome"] = appointment_df["status"].map(STATUS_LABELS).fillna(appointment_df["status"])
     appointment_df["valor"] = appointment_df["final_price"].apply(format_currency)
 
-    visible_cols = ["scheduled_at", "cliente", "serviço", "profissional", "status_nome", "valor", "notes"]
-    st.dataframe(appointment_df[visible_cols], use_container_width=True, hide_index=True)
+    appointment_df["data_local"] = appointment_df["scheduled_at"].map(_local_date)
+    appointment_df["Data"] = appointment_df["data_local"].map(lambda d: d.strftime("%d/%m/%Y"))
+    appointment_df["Horário"] = appointment_df["scheduled_at"].map(_local_time)
+    with st.container(border=True):
+        filter_col, status_col = st.columns(2)
+        day = filter_col.date_input("Dia", value=datetime.now(TZ).date(), format="DD/MM/YYYY", key="agenda_filter_date")
+        status = status_col.selectbox("Situação", ["Todos", *STATUS_OPTIONS.keys()], key="agenda_filter_status")
+        day_only = st.checkbox("Mostrar somente este dia", value=False, key="agenda_day_only")
+        filtered = appointment_df.copy()
+        if day_only:
+            filtered = filtered[filtered["data_local"] == day]
+        if status != "Todos":
+            filtered = filtered[filtered["status"] == STATUS_OPTIONS[status]]
+        filtered = filtered.sort_values(["data_local", "Horário"])
+        visible_cols = ["Data", "Horário", "cliente", "serviço", "profissional", "status_nome", "valor", "notes"]
+        st.dataframe(filtered[visible_cols], use_container_width=True, hide_index=True)
 
     st.markdown("### Atualizar status")
     appointment_options = {
@@ -139,7 +161,7 @@ def render() -> None:
         )
         new_date = c2.date_input(
             "Nova data",
-            value=datetime.now().date() + timedelta(days=1),
+            value=datetime.now(TZ).date() + timedelta(days=1),
             key="reschedule_date",
         )
         new_time = c3.time_input("Novo horário", value=time(14, 0), key="reschedule_time")
