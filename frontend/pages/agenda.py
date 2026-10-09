@@ -5,7 +5,7 @@ from datetime import datetime, time, timedelta
 import pandas as pd
 import streamlit as st
 
-from frontend.api_client import api_get, api_patch, api_post, format_currency
+from frontend.api_client import BeautyFlowAPIError, api_get, api_patch, api_post, format_currency
 from frontend.components import page_header
 
 STATUS_OPTIONS = {
@@ -51,19 +51,43 @@ def render() -> None:
                 notes = st.text_area("Observações", placeholder="Ex: cliente prefere atendimento pela manhã")
 
                 if st.form_submit_button("Criar agendamento"):
-                    api_post(
-                        "/appointments",
-                        json={
-                            "client_id": client_map[selected_client]["id"],
-                            "service_id": service_map[selected_service]["id"],
-                            "professional_id": professional_map[selected_professional]["id"],
-                            "scheduled_at": datetime.combine(scheduled_date, scheduled_time).isoformat(),
-                            "final_price": float(final_price),
-                            "notes": notes or None,
-                        },
-                    )
-                    st.success("Agendamento criado com sucesso.")
-                    st.rerun()
+                    try:
+                        api_post(
+                            "/appointments",
+                            json={
+                                "client_id": client_map[selected_client]["id"],
+                                "service_id": service_map[selected_service]["id"],
+                                "professional_id": professional_map[selected_professional]["id"],
+                                "scheduled_at": datetime.combine(scheduled_date, scheduled_time).isoformat(),
+                                "final_price": float(final_price),
+                                "notes": notes or None,
+                            },
+                        )
+                    except BeautyFlowAPIError as exc:
+                        st.error(str(exc))
+                    else:
+                        st.success("Agendamento criado com sucesso.")
+                        st.rerun()
+
+            selected_service_data = service_map[selected_service]
+            selected_professional_data = professional_map[selected_professional]
+            try:
+                availability = api_get(
+                    "/appointments/availability",
+                    params={
+                        "professional_id": selected_professional_data["id"],
+                        "service_id": selected_service_data["id"],
+                        "target_date": scheduled_date.isoformat(),
+                    },
+                )
+                slots = availability.get("slots", [])
+                if slots:
+                    labels = [datetime.fromisoformat(slot).strftime("%H:%M") for slot in slots[:12]]
+                    st.caption("Horários livres nessa data: " + " · ".join(labels))
+                else:
+                    st.caption("Nenhum horário livre encontrado para essa combinação.")
+            except BeautyFlowAPIError:
+                pass
 
     st.markdown("### Agendamentos")
     appointment_df = pd.DataFrame(appointments)
@@ -97,6 +121,38 @@ def render() -> None:
 
         if st.button("Atualizar status do agendamento"):
             appointment_id = appointment_options[selected_appointment]
-            api_patch(f"/appointments/{appointment_id}/status", json={"status": STATUS_OPTIONS[selected_status]})
-            st.success("Status atualizado com sucesso.")
-            st.rerun()
+            try:
+                api_patch(f"/appointments/{appointment_id}/status", json={"status": STATUS_OPTIONS[selected_status]})
+            except BeautyFlowAPIError as exc:
+                st.error(str(exc))
+            else:
+                st.success("Status atualizado com sucesso.")
+                st.rerun()
+
+    st.markdown("### Reagendar")
+    with st.container(border=True):
+        c1, c2, c3 = st.columns(3)
+        selected_reschedule = c1.selectbox(
+            "Agendamento para reagendar",
+            list(appointment_options.keys()),
+            key="reschedule_appointment",
+        )
+        new_date = c2.date_input(
+            "Nova data",
+            value=datetime.now().date() + timedelta(days=1),
+            key="reschedule_date",
+        )
+        new_time = c3.time_input("Novo horário", value=time(14, 0), key="reschedule_time")
+
+        if st.button("Confirmar reagendamento"):
+            appointment_id = appointment_options[selected_reschedule]
+            try:
+                api_patch(
+                    f"/appointments/{appointment_id}/reschedule",
+                    json={"scheduled_at": datetime.combine(new_date, new_time).isoformat()},
+                )
+            except BeautyFlowAPIError as exc:
+                st.error(str(exc))
+            else:
+                st.success("Agendamento reagendado com sucesso.")
+                st.rerun()
