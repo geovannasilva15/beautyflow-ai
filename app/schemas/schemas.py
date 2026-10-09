@@ -5,13 +5,13 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.core.time import ensure_utc
+from app.core.time import local_datetime_to_utc
 from app.db.models import AppointmentStatus, CampaignStatus, ConversationIntent
 
 
 class ClientCreate(BaseModel):
-    name: str
-    phone: str
+    name: str = Field(min_length=2, max_length=120)
+    phone: str = Field(min_length=8, max_length=30)
     email: Optional[str] = None
     hair_type: Optional[str] = None
     skin_type: Optional[str] = None
@@ -20,8 +20,8 @@ class ClientCreate(BaseModel):
 
 
 class ClientUpdate(BaseModel):
-    name: Optional[str] = None
-    phone: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    phone: Optional[str] = Field(default=None, min_length=8, max_length=30)
     email: Optional[str] = None
     hair_type: Optional[str] = None
     skin_type: Optional[str] = None
@@ -30,27 +30,27 @@ class ClientUpdate(BaseModel):
 
 
 class ServiceCreate(BaseModel):
-    name: str
-    category: str
-    description: str
-    duration_minutes: int = 60
-    price: float = 0.0
+    name: str = Field(min_length=2, max_length=120)
+    category: str = Field(min_length=2, max_length=80)
+    description: str = Field(min_length=3)
+    duration_minutes: int = Field(default=60, ge=15, le=480)
+    price: float = Field(default=0.0, ge=0)
     tags: Optional[str] = None
 
 
 class ServiceUpdate(BaseModel):
-    name: Optional[str] = None
-    category: Optional[str] = None
-    description: Optional[str] = None
-    duration_minutes: Optional[int] = None
-    price: Optional[float] = None
+    name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    category: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    description: Optional[str] = Field(default=None, min_length=3)
+    duration_minutes: Optional[int] = Field(default=None, ge=15, le=480)
+    price: Optional[float] = Field(default=None, ge=0)
     tags: Optional[str] = None
     active: Optional[bool] = None
 
 
 class ProfessionalCreate(BaseModel):
-    name: str
-    specialty: str
+    name: str = Field(min_length=2, max_length=120)
+    specialty: str = Field(min_length=2, max_length=120)
 
 
 class AppointmentCreate(BaseModel):
@@ -58,13 +58,22 @@ class AppointmentCreate(BaseModel):
     service_id: int
     professional_id: int
     scheduled_at: datetime
-    final_price: Optional[float] = None
+    final_price: Optional[float] = Field(default=None, ge=0)
     notes: Optional[str] = None
 
     @field_validator("scheduled_at")
     @classmethod
     def normalize_scheduled_at(cls, value: datetime) -> datetime:
-        return ensure_utc(value)
+        return local_datetime_to_utc(value)
+
+
+class AppointmentReschedule(BaseModel):
+    scheduled_at: datetime
+
+    @field_validator("scheduled_at")
+    @classmethod
+    def normalize_scheduled_at(cls, value: datetime) -> datetime:
+        return local_datetime_to_utc(value)
 
 
 class AppointmentUpdateStatus(BaseModel):
@@ -117,7 +126,7 @@ class CampaignCreate(BaseModel):
     @field_validator("scheduled_at")
     @classmethod
     def normalize_scheduled_at(cls, value: Optional[datetime]) -> Optional[datetime]:
-        return ensure_utc(value) if value else None
+        return local_datetime_to_utc(value) if value else None
 
 
 class CampaignUpdate(BaseModel):
@@ -130,4 +139,4 @@ class CampaignUpdate(BaseModel):
     @field_validator("scheduled_at")
     @classmethod
     def normalize_scheduled_at(cls, value: Optional[datetime]) -> Optional[datetime]:
-        return ensure_utc(value) if value else None
+        return local_datetime_to_utc(value) if value else None

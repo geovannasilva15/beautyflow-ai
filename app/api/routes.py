@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from app.core.config import get_settings
 from app.db.database import get_session
-from app.db.models import Appointment, Campaign, Client, ConversationMessage, Professional, ScheduledMessage, Service
+from app.db.models import Appointment, AppointmentStatus, Campaign, Client, ConversationMessage, Professional, ScheduledMessage, Service
 from app.ml.recommender import recommend_services
 from app.schemas.schemas import (
     AIChatRequest,
     AIMessageRequest,
     AppointmentCreate,
+    AppointmentReschedule,
     AppointmentUpdateStatus,
     CampaignCreate,
     ClientCreate,
@@ -23,15 +27,21 @@ from app.schemas.schemas import (
 )
 from app.services.ai_service import generate_ai_answer, generate_client_message, generate_marketing_post
 from app.services.analytics_service import get_dashboard_metrics
+from app.services.appointment_service import appointment_slot_error, get_available_slots
 from app.services.campaign_service import create_campaign, schedule_campaign_messages
 from app.services.whatsapp_agent_service import process_whatsapp_message
 
 router = APIRouter()
+settings = get_settings()
 
 
 @router.get("/health")
 def health_check() -> dict:
-    return {"status": "ok", "message": "BeautyFlow AI API está funcionando."}
+    return {
+        "status": "ok",
+        "message": "BeautyFlow AI API está funcionando.",
+        "timezone": settings.business_timezone,
+    }
 
 
 @router.post("/clients", response_model=Client)
@@ -126,6 +136,28 @@ def list_professionals(session: Session = Depends(get_session)) -> list[Professi
     return session.exec(select(Professional).where(Professional.active == True).order_by(Professional.name)).all()  # noqa: E712
 
 
+@router.get("/appointments/availability")
+def appointment_availability(
+    professional_id: int,
+    service_id: int,
+    target_date: date,
+    session: Session = Depends(get_session),
+) -> dict:
+    professional = session.get(Professional, professional_id)
+    service = session.get(Service, service_id)
+    if not professional or not professional.active:
+        raise HTTPException(status_code=404, detail="Profissional não encontrado ou inativo.")
+    if not service or not service.active:
+        raise HTTPException(status_code=404, detail="Serviço não encontrado ou inativo.")
+
+    slots = get_available_slots(session, professional_id, service_id, target_date)
+    return {
+        "date": target_date.isoformat(),
+        "timezone": settings.business_timezone,
+        "slots": [slot.isoformat() for slot in slots],
+    }
+
+
 @router.post("/appointments", response_model=Appointment)
 def create_appointment(payload: AppointmentCreate, session: Session = Depends(get_session)) -> Appointment:
     client = session.get(Client, payload.client_id)
@@ -133,10 +165,20 @@ def create_appointment(payload: AppointmentCreate, session: Session = Depends(ge
     professional = session.get(Professional, payload.professional_id)
     if not client:
         raise HTTPException(status_code=404, detail="Cliente não encontrado.")
-    if not service:
-        raise HTTPException(status_code=404, detail="Serviço não encontrado.")
-    if not professional:
-        raise HTTPException(status_code=404, detail="Profissional não encontrado.")
+    if not service or not service.active:
+        raise HTTPException(status_code=404, detail="Serviço não encontrado ou inativo.")
+    if not professional or not professional.active:
+        raise HTTPException(status_code=404, detail="Profissional não encontrado ou inativo.")
+
+    error = appointment_slot_error(
+        session,
+        payload.professional_id,
+        payload.service_id,
+        payload.scheduled_at,
+    )
+    if error:
+        raise HTTPException(status_code=409, detail=error)
+
     appointment = Appointment(
         client_id=payload.client_id,
         service_id=payload.service_id,
@@ -166,6 +208,36 @@ def update_appointment_status(
     if not appointment:
         raise HTTPException(status_code=404, detail="Agendamento não encontrado.")
     appointment.status = payload.status
+    session.add(appointment)
+    session.commit()
+    session.refresh(appointment)
+    return appointment
+
+
+@router.patch("/appointments/{appointment_id}/reschedule", response_model=Appointment)
+def reschedule_appointment(
+    appointment_id: int,
+    payload: AppointmentReschedule,
+    session: Session = Depends(get_session),
+) -> Appointment:
+    appointment = session.get(Appointment, appointment_id)
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Agendamento não encontrado.")
+    if appointment.status == AppointmentStatus.completed:
+        raise HTTPException(status_code=409, detail="Um atendimento concluído não pode ser reagendado.")
+
+    error = appointment_slot_error(
+        session,
+        appointment.professional_id,
+        appointment.service_id,
+        payload.scheduled_at,
+        exclude_appointment_id=appointment.id,
+    )
+    if error:
+        raise HTTPException(status_code=409, detail=error)
+
+    appointment.scheduled_at = payload.scheduled_at
+    appointment.status = AppointmentStatus.scheduled
     session.add(appointment)
     session.commit()
     session.refresh(appointment)
