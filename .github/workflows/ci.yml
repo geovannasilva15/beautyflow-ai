@@ -2,9 +2,9 @@ name: BeautyFlow AI CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/platform-foundations, feature/agent-tools-v1, feature/secure-agent-confirmation, feature/llm-assistant-v1]
   pull_request:
-    branches: [main]
+    branches: [main, feature/scheduling-v2, feature/platform-foundations, feature/agent-tools-v1, feature/secure-agent-confirmation]
 
 jobs:
   test:

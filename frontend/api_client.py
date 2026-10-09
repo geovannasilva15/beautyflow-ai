@@ -24,6 +24,14 @@ def get_api_url() -> str:
 API_URL = get_api_url()
 
 
+def _headers() -> dict[str, str]:
+    try:
+        token = st.secrets.get('API_ACCESS_TOKEN') or os.getenv('API_ACCESS_TOKEN', '')
+    except Exception:
+        token = os.getenv('API_ACCESS_TOKEN', '')
+    return {'X-API-Key': str(token)} if token else {}
+
+
 def _handle_response(response: requests.Response) -> Any:
     try:
         response.raise_for_status()
@@ -41,27 +49,27 @@ def _handle_response(response: requests.Response) -> Any:
 
 
 def api_get(path: str, params: dict | None = None) -> Any:
-    response = requests.get(f"{API_URL}{path}", params=params, timeout=20)
+    response = requests.get(f"{API_URL}{path}", params=params, timeout=20, headers=_headers())
     return _handle_response(response)
 
 
 def api_post(path: str, json: dict | None = None, params: dict | None = None) -> Any:
-    response = requests.post(f"{API_URL}{path}", json=json, params=params, timeout=60)
+    response = requests.post(f"{API_URL}{path}", json=json, params=params, timeout=60, headers=_headers())
     return _handle_response(response)
 
 
 def api_put(path: str, json: dict | None = None) -> Any:
-    response = requests.put(f"{API_URL}{path}", json=json, timeout=60)
+    response = requests.put(f"{API_URL}{path}", json=json, timeout=60, headers=_headers())
     return _handle_response(response)
 
 
 def api_patch(path: str, json: dict | None = None) -> Any:
-    response = requests.patch(f"{API_URL}{path}", json=json, timeout=60)
+    response = requests.patch(f"{API_URL}{path}", json=json, timeout=60, headers=_headers())
     return _handle_response(response)
 
 
 def api_delete(path: str) -> Any:
-    response = requests.delete(f"{API_URL}{path}", timeout=60)
+    response = requests.delete(f"{API_URL}{path}", timeout=60, headers=_headers())
     return _handle_response(response)
 
 

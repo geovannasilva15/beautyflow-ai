@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from frontend.api_client import api_post
+from frontend.api_client import BeautyFlowAPIError, api_post
 from frontend.components import page_header
 
 
@@ -17,8 +17,11 @@ def render() -> None:
             context = st.text_input("Contexto do negócio", "salão de beleza com agenda via WhatsApp")
             question = st.text_area("Pergunta", "Como reduzir faltas nos agendamentos?", height=120)
             if st.button("Perguntar", key="ai_chat"):
-                result = api_post("/ai/chat", json={"question": question, "business_context": context})
-                st.markdown(result["answer"])
+                try:
+                    result = api_post("/ai/chat", json={"question": question, "business_context": context})
+                    st.markdown(result["answer"])
+                except BeautyFlowAPIError as exc:
+                    st.error(str(exc))
 
         with st.container(border=True):
             st.markdown("### Mensagem para cliente")
