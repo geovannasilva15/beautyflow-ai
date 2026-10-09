@@ -29,6 +29,7 @@ from app.services.ai_service import generate_ai_answer, generate_client_message,
 from app.services.analytics_service import get_dashboard_metrics
 from app.services.appointment_service import appointment_slot_error, get_available_slots
 from app.services.campaign_service import create_campaign, schedule_campaign_messages
+from app.services.crm_service import get_crm_metrics
 from app.services.whatsapp_agent_service import process_whatsapp_message
 
 router = APIRouter()
@@ -297,6 +298,13 @@ def schedule_campaign(campaign_id: int, session: Session = Depends(get_session))
 @router.post("/campaigns/{campaign_id}/simulate-send")
 def simulate_campaign_send(campaign_id: int, session: Session = Depends(get_session)) -> dict:
     return schedule_campaign_messages(session, campaign_id)
+
+
+@router.get("/crm/summary")
+def crm_summary(inactive_days: int = 60, session: Session = Depends(get_session)) -> dict:
+    if not 1 <= inactive_days <= 365:
+        raise HTTPException(status_code=422, detail="inactive_days deve estar entre 1 e 365.")
+    return get_crm_metrics(session, inactive_days)
 
 
 @router.get("/dashboard")
