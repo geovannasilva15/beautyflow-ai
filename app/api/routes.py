@@ -25,7 +25,7 @@ from app.schemas.schemas import (
     ServiceUpdate,
     WhatsAppSimulationRequest,
 )
-from app.services.ai_service import generate_ai_answer, generate_client_message, generate_marketing_post
+from app.services.ai_service import AIProviderUnavailable, generate_ai_answer, generate_client_message, generate_marketing_post
 from app.services.analytics_service import get_dashboard_metrics
 from app.services.appointment_service import appointment_slot_error, get_available_slots
 from app.services.campaign_service import create_campaign, schedule_campaign_messages
@@ -248,7 +248,12 @@ def reschedule_appointment(
 
 @router.post("/ai/chat")
 def ai_chat(payload: AIChatRequest) -> dict:
-    return {"answer": generate_ai_answer(payload.question, payload.business_context)}
+    try:
+        return {"answer": generate_ai_answer(payload.question, payload.business_context)}
+    except AIProviderUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/ai/message")
