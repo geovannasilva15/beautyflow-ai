@@ -107,3 +107,12 @@ class ScheduledMessage(SQLModel, table=True):
     scheduled_at: Optional[datetime] = None
     status: str = "pending"
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class AgentConfirmation(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    token_hash: str = Field(index=True, unique=True)
+    action_hash: str
+    expires_at: datetime
+    consumed: bool = False
+    created_at: datetime = Field(default_factory=utc_now)
