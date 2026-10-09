@@ -8,7 +8,7 @@ from frontend.components import page_header
 
 
 def render() -> None:
-    page_header("Serviços", "Monte um catálogo profissional para agenda, IA e recomendações.")
+    st.markdown('<div class="bf-eyebrow">BEAUTYFLOW / SERVIÇOS</div><h1 class="bf-title">Serviços com personalidade.</h1><p class="bf-subtitle">Organize procedimentos, preços e duração.</p>', unsafe_allow_html=True)
 
     with st.container(border=True):
         st.markdown("### Cadastrar novo serviço")
@@ -44,6 +44,7 @@ def render() -> None:
         st.info("Nenhum serviço cadastrado ainda.")
         return
 
+    st.metric("Serviços ativos", len(services))
     st.markdown("### Catálogo de serviços")
     search = st.text_input("Buscar por nome, categoria ou tag", placeholder="Ex: cabelo, pele, sobrancelha...")
     filtered = services.copy()

@@ -7,8 +7,9 @@ from frontend.components import page_header
 
 
 def render() -> None:
-    page_header("Assistente IA", "Crie respostas, mensagens e campanhas profissionais.")
+    st.markdown('<div class="bf-eyebrow">BEAUTYFLOW / IA</div><h1 class="bf-title">Inteligência para o seu negócio.</h1><p class="bf-subtitle">Crie mensagens e consulte a mentora de IA.</p>', unsafe_allow_html=True)
 
+    st.caption("O chat usa LLM somente com chave de API configurada; as outras mensagens são baseadas em modelos.")
     col1, col2 = st.columns(2)
 
     with col1:
