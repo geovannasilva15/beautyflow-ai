@@ -89,11 +89,42 @@ python -m compileall app frontend tests seed.py
 pytest -q
 ```
 
-Os testes usam um banco SQLite isolado e cobrem saúde da API, criação de
-agendamentos, simulação de atendimento e campanhas.
-## Status
+Os testes usam um banco SQLite isolado e cobrem saúde da API, agendamentos,
+disponibilidade, proteção de acesso, CRM, ferramentas de agente e chamadas LLM
+simuladas em testes.
 
-Protótipo funcional para apresentação e execução local. Integrações externas, autenticação por usuário e infraestrutura em nuvem fazem parte da evolução planejada.
+## Status real e como utilizar
+
+A branch `main` contém o MVP local. Para iniciar:
+
+1. Clone o repositório e siga as instruções de instalação acima.
+2. Rode `python seed.py` apenas para carregar dados de demonstração.
+3. Inicie o FastAPI e o Streamlit em terminais separados.
+4. Acesse `http://localhost:8501`.
+
+O login disponibilizado na interface é **somente demonstrativo**, com
+credenciais públicas no código; não fornece autenticação segura.
+Não use dados pessoais reais nem publique esta versão diretamente na Internet.
+
+O assistente de texto usa um LLM real **somente** quando `OPENAI_API_KEY`
+está configurada no backend. Sem chave, o endpoint retorna erro explicativo.
+As ações determinísticas do agente são disponibilizadas pela API, com tokens
+temporários de confirmação, mas ainda não são chamadas autonomamente pelo LLM.
+
+O WhatsApp é uma **simulação local**: não envia mensagens reais.
+PostgreSQL, autenticação multiusuário, migrações de esquema, HTTPS, hospedagem,
+verificação de acesso e integração oficial com WhatsApp ainda precisam
+ser concluídos antes de um lançamento público.
+
+Consulte `docs/` para o contrato das ferramentas e a configuração da API.
+
+## Roadmap
+
+- autenticação multiusuário e RBAC com controle de acesso na API;
+- migrações Alembic e PostgreSQL em ambiente implantado;
+- orquestração de LLM com ferramentas de leitura e confirmação de ações;
+- integração WhatsApp Cloud API com webhooks e opt-in;
+- deploy seguro com observabilidade, backups e política de privacidade.
 
 ## Autoria
 
