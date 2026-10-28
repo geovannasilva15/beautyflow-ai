@@ -35,3 +35,8 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix=settings.api_prefix, dependencies=[Depends(require_api_key)])
+
+
+@app.get("/healthz", include_in_schema=False)
+def deployment_health() -> dict[str, str]:
+    return {"status": "ok"}
