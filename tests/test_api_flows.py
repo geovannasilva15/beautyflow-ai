@@ -56,7 +56,7 @@ def test_create_appointment_flow(client: TestClient) -> None:
             "service_id": service_id,
             "professional_id": professional_id,
             # The Streamlit form sends a local ISO timestamp without a timezone.
-            "scheduled_at": (datetime.now() + timedelta(days=3)).isoformat(),
+            "scheduled_at": (datetime.now() + timedelta(days=3)).replace(hour=14, minute=0, second=0, microsecond=0).isoformat(),
             "final_price": 120.0,
             "notes": "Teste de criação de agendamento.",
         },
