@@ -124,10 +124,10 @@ def render() -> None:
             st.markdown("### Acesso rápido")
             st.caption("Ações do seu dia a dia.")
             if st.button("Abrir agenda", use_container_width=True, key="dash_agenda"):
-                st.session_state["bf_page"] = "Agenda"
+                st.session_state["navigate_to"] = "Agenda"
                 st.rerun()
             if st.button("Ver clientes", use_container_width=True, key="dash_clients"):
-                st.session_state["bf_page"] = "Clientes"
+                st.session_state["navigate_to"] = "Clientes"
                 st.rerun()
 
     c1, c2, c3 = st.columns(3)
