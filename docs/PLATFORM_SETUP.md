@@ -1,36 +1,19 @@
-# BeautyFlow Platform Foundation
+# Contas e operação
 
-## API access guard
+Cada instalação atende a um negócio. Use banco, credenciais e serviços de hospedagem separados para cada negócio. Administrador e profissional da mesma equipe compartilham os dados operacionais dessa instalação.
 
-Development (default): with no `API_ACCESS_TOKEN`, local API requests continue to work.
+| Operação | Administrador | Profissional |
+| --- | --- | --- |
+| Clientes, agenda, dashboard e ferramentas de consulta | Sim | Sim |
+| Cadastro e atualização de clientes e agenda | Sim | Sim |
+| Exclusão de cadastro de cliente sem histórico vinculado | Sim | |
+| Cadastro, edição e desativação de serviços e profissionais da agenda | Sim | |
+| Cadastro e desativação de contas e caixa de entrada do WhatsApp | Sim | |
 
-For a private deployment, configure:
+O perfil de acesso profissional representa um membro da equipe. O cadastro de profissionais da agenda define quem oferece horários.
 
-```bash
-APP_ENV=production
-API_ACCESS_TOKEN=your-long-random-token
-```
+O primeiro administrador é criado no terminal da API com `python -m app.manage_accounts bootstrap`. Depois, a área **Minha conta** cria e desativa contas da equipe. Senhas temporárias devem ser comunicadas por um canal seguro. O sistema exige a troca no primeiro acesso.
 
-The Streamlit frontend must use the same `API_ACCESS_TOKEN` in its server-side
-environment or Streamlit secrets.
+A senha usa scrypt com salt individual. A API armazena somente o hash dos tokens aleatórios de sessão. Os tokens duram até oito horas, ficam no servidor Streamlit e são revogados ao sair, trocar senha ou desativar a conta. Todas as operações com dados verificam a sessão. O login tem limites persistentes por e-mail e para a instalação. A implantação usa HTTPS no navegador e entre o painel e a API.
 
-**Security boundary:** this is a service-level API key, not personal account
-authentication. Do not expose the key in browsers, mobile clients or JavaScript.
-Do not publish the prototype login with hardcoded credentials to the Internet.
-Per-user permissions, session authentication, migrations, audit logging,
-TLS, rate limiting and backups are mandatory before handling real customer data.
-
-## CRM metrics
-
-`GET /api/crm/summary?inactive_days=60`
-
-Returns totals derived from real appointments. Only completed appointments count
-as visits and revenue. Inactive flags apply to previously served clients with
-no completed visit in the specified interval. They are *not* predictive churn.
-
-## PostgreSQL
-
-The Python dependency `psycopg` is available for a later PostgreSQL deployment.
-The SQLModel database URL accepts `postgresql+psycopg://...`.
-Automatic `create_all` is suitable for local demos, not schema migration in
-production. Add Alembic and migration checks before rollout.
+Para recuperar o acesso, execute `python -m app.manage_accounts reset-password` em terminal interativo no host da API. Confirme a identidade da pessoa antes de definir uma senha temporária. Sessões antigas serão revogadas e a pessoa precisará trocar a senha ao entrar. Recuperação por e-mail exigiria um serviço de envio, validação de identidade e links de uso único. A CLI cobre o piloto.

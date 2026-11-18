@@ -9,24 +9,31 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from frontend.api_client import api_online  # noqa: E402
-from frontend.auth import init_auth_state, logout_user, render_login_page  # noqa: E402
-from frontend.pages import agenda, assistente, atendimento_ia, campanhas, clientes, dashboard, home, recomendador, servicos  # noqa: E402
+from frontend.api_client import BeautyFlowAPIError, api_get  # noqa: E402
+from frontend.auth import clear_auth_state, logout_user, render_login_page  # noqa: E402
+from frontend.pages import agenda, assistente, atendimento_ia, campanhas, clientes, contas, dashboard, home, recomendador, servicos  # noqa: E402
 from frontend.styles import apply_global_styles  # noqa: E402
 
-st.set_page_config(page_title="BeautyFlow AI", page_icon="💎", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="BeautyFlow AI", page_icon="💎", layout="wide", initial_sidebar_state="auto")
 apply_global_styles()
 
-init_auth_state()
 if st.query_params.get("logout") == "1":
-    st.session_state.authenticated = False
-    st.session_state.user = None
     st.query_params.clear()
-    st.rerun()
+    logout_user()
 
-if not st.session_state.authenticated:
+if not st.session_state.get("access_token"):
     render_login_page()
     st.stop()
+
+try:
+    user = api_get("/auth/me")
+except BeautyFlowAPIError as exc:
+    if exc.status_code == 401:
+        clear_auth_state()
+        st.rerun()
+    st.error(str(exc))
+    st.stop()
+st.session_state["user"] = user
 
 PAGES = {
     "Dashboard": dashboard.render,
@@ -36,36 +43,29 @@ PAGES = {
     "Serviços": servicos.render,
     "Assistente IA": assistente.render,
     "Recomendador": recomendador.render,
-    "Atendimento IA": atendimento_ia.render,
+    "Atendimento": atendimento_ia.render,
     "Campanhas": campanhas.render,
+    "Minha conta": contas.render,
 }
+
+if user["must_change_password"]:
+    PAGES = {"Minha conta": contas.render}
+    st.info("Troque a senha inicial para acessar o painel.")
 
 with st.sidebar:
     st.markdown("## 💎 BeautyFlow AI")
-    st.caption("Agenda, IA e campanhas para negócios de beleza.")
+    st.text(user["name"])
+    st.caption("Administrador" if user["role"] == "admin" else "Profissional")
+    target = st.session_state.pop("navigate_to", st.session_state.get("bf_page"))
+    if target in PAGES:
+        st.session_state["bf_page"] = target
+    elif st.session_state.get("bf_page") not in PAGES:
+        st.session_state["bf_page"] = next(iter(PAGES))
+    selected_page = st.radio("Menu", list(PAGES), label_visibility="collapsed", key="bf_page")
     if st.button("Sair da conta"):
         logout_user()
-    st.write("---")
-    user = st.session_state.user or {}
-    st.write(f"**Usuária:** {user.get('name', 'Demo')}")
-    st.caption(user.get("role", "Demo"))
-    st.write("---")
-    if st.session_state.get("bf_page") not in PAGES:
-        st.session_state["bf_page"] = "Dashboard"
-    selected_page = st.radio(
-        "Menu", list(PAGES.keys()), label_visibility="collapsed",
-        key="bf_page",
-    )
-    st.write("---")
-    if api_online():
-        st.success("API conectada")
-    else:
-        st.error("API offline")
-        st.caption("Rode: python -m uvicorn app.main:app --reload")
 
-if not api_online():
-    st.error("API não encontrada. Abra outro terminal e rode:")
-    st.code("python -m uvicorn app.main:app --reload", language="powershell")
-    st.stop()
-
-PAGES[selected_page]()
+try:
+    PAGES[selected_page]()
+except BeautyFlowAPIError as exc:
+    st.error(str(exc))

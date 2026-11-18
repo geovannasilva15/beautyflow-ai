@@ -1,14 +1,7 @@
-# Assistente LLM V1
+# Mentora OpenAI
 
-Configure `OPENAI_API_KEY` **apenas no servidor** e, opcionalmente, `OPENAI_MODEL`.
-O endpoint `POST /api/ai/chat` consulta o provedor real e retorna HTTP 503
-quando a chave está ausente ou a chamada falha. Não há resposta falsa de IA.
+Defina `OPENAI_API_KEY` somente na API. Use `OPENAI_MODEL` para escolher um modelo de chat disponível na sua conta. A aplicação envia o contexto e a pergunta que a pessoa digitou, com limite de tamanho e tempo de resposta, e retorna uma mensagem de indisponibilidade quando a configuração ou a chamada falha.
 
-Os testes usam provedor simulado e **não comprovam conectividade externa**.
-Mensagens e contexto enviados à API são transmitidos ao provedor configurado:
-evite dados pessoais sensíveis ou informações identificáveis de clientes.
+O chat oferece orientação geral de gestão. A equipe consulta preços, clientes e horários em **Dados do sistema**, com a sessão individual, e faz alterações de agenda por confirmações nessa mesma aba. O modelo recebe somente os campos informados no chat. Use exemplos fictícios. Os modelos de mensagem e campanha são textos baseados em regras.
 
-Essa etapa é um assistente de texto, não um agente autônomo com tool-calling.
-As ferramentas de agenda permanecem em `/api/agent/tools` e têm confirmação
-em duas etapas. A orquestração segura entre LLM e ferramentas exige política de
-autorização por usuário e implementação posterior.
+O teste da API usa respostas simuladas. A validação externa exige uma chave ativa, acesso ao modelo e um teste com contexto fictício. [Referência da API OpenAI](https://platform.openai.com/docs/api-reference/chat)

@@ -3,14 +3,14 @@ from __future__ import annotations
 import calendar
 from datetime import date, datetime, timezone
 from html import escape
-from zoneinfo import ZoneInfo
+from app.core.time import business_timezone
 
 import pandas as pd
 import streamlit as st
 
 from frontend.api_client import api_get, format_currency
 
-TZ = ZoneInfo("America/Sao_Paulo")
+TZ = business_timezone()
 
 
 def _local_date(value: str) -> date:

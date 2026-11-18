@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
+import os
 
 from sqlmodel import Session, select
 
@@ -16,6 +17,8 @@ def _future_local_slot(days: int, hour: int) -> datetime:
 
 
 def seed() -> None:
+    if os.getenv("APP_ENV", "development").strip().lower() == "production":
+        raise SystemExit("Dados fictícios são permitidos apenas em um banco de desenvolvimento.")
     create_db_and_tables()
 
     with Session(engine) as session:

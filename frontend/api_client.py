@@ -2,83 +2,67 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 import streamlit as st
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class BeautyFlowAPIError(RuntimeError):
-    pass
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def get_api_url() -> str:
+    url = os.getenv("API_URL", "http://127.0.0.1:8000/api").rstrip("/")
+    if os.getenv("APP_ENV", "development").strip().lower() == "production" and urlsplit(url).scheme != "https":
+        raise BeautyFlowAPIError("Configure uma API com HTTPS.")
+    return url
+
+
+def _request(method: str, path: str, **kwargs) -> Any:
+    token = st.session_state.get("access_token")
+    headers = {"Authorization": f"Bearer {token}"} if token and path != "/auth/login" else {}
     try:
-        api_url = st.secrets.get("API_URL")
-        if api_url:
-            return str(api_url).rstrip("/")
-    except Exception:
-        pass
-    return os.getenv("API_URL", "http://127.0.0.1:8000/api").rstrip("/")
-
-
-API_URL = get_api_url()
-
-
-def _headers() -> dict[str, str]:
-    try:
-        token = st.secrets.get('API_ACCESS_TOKEN') or os.getenv('API_ACCESS_TOKEN', '')
-    except Exception:
-        token = os.getenv('API_ACCESS_TOKEN', '')
-    return {'X-API-Key': str(token)} if token else {}
-
-
-def _handle_response(response: requests.Response) -> Any:
-    try:
-        response.raise_for_status()
-    except requests.HTTPError as exc:
+        response = requests.request(
+            method, f"{get_api_url()}{path}", timeout=(5, 35), headers=headers,
+            allow_redirects=False, **kwargs,
+        )
+    except requests.RequestException as exc:
+        raise BeautyFlowAPIError("API indisponível. Tente novamente em instantes.") from exc
+    if not 200 <= response.status_code < 300:
         try:
-            payload = response.json()
-            detail = payload.get("detail") or payload.get("message")
-        except Exception:
+            detail = response.json().get("detail")
+        except (ValueError, AttributeError):
             detail = None
-        raise BeautyFlowAPIError(detail or "Não foi possível concluir a operação.") from exc
-
-    if response.status_code == 204:
-        return None
-    return response.json()
+        if isinstance(detail, list):
+            detail = "Verifique os campos e os limites indicados no formulário."
+        raise BeautyFlowAPIError(detail or "Não foi possível concluir a operação.", response.status_code)
+    return None if response.status_code == 204 else response.json()
 
 
 def api_get(path: str, params: dict | None = None) -> Any:
-    response = requests.get(f"{API_URL}{path}", params=params, timeout=20, headers=_headers())
-    return _handle_response(response)
+    return _request("GET", path, params=params)
 
 
 def api_post(path: str, json: dict | None = None, params: dict | None = None) -> Any:
-    response = requests.post(f"{API_URL}{path}", json=json, params=params, timeout=60, headers=_headers())
-    return _handle_response(response)
+    return _request("POST", path, json=json, params=params)
 
 
 def api_put(path: str, json: dict | None = None) -> Any:
-    response = requests.put(f"{API_URL}{path}", json=json, timeout=60, headers=_headers())
-    return _handle_response(response)
+    return _request("PUT", path, json=json)
 
 
 def api_patch(path: str, json: dict | None = None) -> Any:
-    response = requests.patch(f"{API_URL}{path}", json=json, timeout=60, headers=_headers())
-    return _handle_response(response)
+    return _request("PATCH", path, json=json)
 
 
 def api_delete(path: str) -> Any:
-    response = requests.delete(f"{API_URL}{path}", timeout=60, headers=_headers())
-    return _handle_response(response)
-
-
-def api_online() -> bool:
-    try:
-        api_get("/health")
-        return True
-    except Exception:
-        return False
+    return _request("DELETE", path)
 
 
 def format_currency(value: float | int | None) -> str:

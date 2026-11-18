@@ -4,19 +4,28 @@ import pandas as pd
 import streamlit as st
 
 from frontend.api_client import api_delete, api_get, api_post, api_put, format_currency
-from frontend.components import page_header
+from frontend.pages.profissionais import render_professionals
 
 
 def render() -> None:
     st.markdown('<div class="bf-eyebrow">BEAUTYFLOW / SERVIÇOS</div><h1 class="bf-title">Serviços com personalidade.</h1><p class="bf-subtitle">Organize procedimentos, preços e duração.</p>', unsafe_allow_html=True)
 
+    admin = st.session_state.user["role"] == "admin"
+    if admin:
+        render_professionals()
+        render_create_service()
+
+    render_catalog(admin)
+
+
+def render_create_service() -> None:
     with st.container(border=True):
         st.markdown("### Cadastrar novo serviço")
         with st.form("service_create", clear_on_submit=True):
             c1, c2 = st.columns(2)
             name = c1.text_input("Nome do serviço", placeholder="Ex: Hidratação profunda")
             category = c1.text_input("Categoria", placeholder="Ex: Cabelo")
-            duration = c1.number_input("Duração em minutos", min_value=10, value=60, step=5)
+            duration = c1.number_input("Duração em minutos", min_value=15, max_value=480, value=60, step=5)
             price = c2.number_input("Preço", min_value=0.0, value=120.0, step=10.0)
             tags = c2.text_input("Tags", placeholder="cabelo hidratação brilho frizz")
             description = st.text_area("Descrição", placeholder="Explique o benefício do serviço para a cliente.")
@@ -39,12 +48,13 @@ def render() -> None:
                     st.success("Serviço cadastrado com sucesso.")
                     st.rerun()
 
-    services = pd.DataFrame(api_get("/services"))
+def render_catalog(admin: bool) -> None:
+    services = pd.DataFrame(api_get("/services", params={"active_only": not admin}))
     if services.empty:
         st.info("Nenhum serviço cadastrado ainda.")
         return
 
-    st.metric("Serviços ativos", len(services))
+    st.metric("Serviços ativos", int(services["active"].sum()))
     st.markdown("### Catálogo de serviços")
     search = st.text_input("Buscar por nome, categoria ou tag", placeholder="Ex: cabelo, pele, sobrancelha...")
     filtered = services.copy()
@@ -70,6 +80,11 @@ def render() -> None:
                 st.metric("Preço", format_currency(service.get("price")))
                 st.metric("Duração", f"{int(service.get('duration_minutes', 0))} min")
 
+            if not service["active"]:
+                st.caption("Serviço inativo")
+            if not admin:
+                continue
+
             with st.expander("Editar serviço"):
                 with st.form(f"service_edit_{service_id}"):
                     c1, c2 = st.columns(2)
@@ -77,7 +92,8 @@ def render() -> None:
                     edit_category = c1.text_input("Categoria", value=str(service.get("category") or ""), key=f"sc_{service_id}")
                     edit_duration = c1.number_input(
                         "Duração em minutos",
-                        min_value=10,
+                        min_value=15,
+                        max_value=480,
                         value=int(service.get("duration_minutes") or 60),
                         step=5,
                         key=f"sd_{service_id}",

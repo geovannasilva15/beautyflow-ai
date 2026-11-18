@@ -1,25 +1,30 @@
 from __future__ import annotations
 
 from datetime import date
+import os
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.config import get_settings
-from app.db.database import get_session
-from app.db.models import Appointment, AppointmentStatus, Campaign, Client, ConversationMessage, Professional, ScheduledMessage, Service
+from app.core.api_access import current_account, require_admin
+from app.db.database import TransactionLock, get_session, lock_transaction
+from app.db.models import Account, Appointment, AppointmentStatus, Campaign, Client, ConversationMessage, Professional, ScheduledMessage, Service
 from app.ml.recommender import recommend_services
 from app.schemas.schemas import (
     AIChatRequest,
     AIMessageRequest,
     AppointmentCreate,
     AppointmentReschedule,
+    AppointmentEdit,
     AppointmentUpdateStatus,
     CampaignCreate,
     ClientCreate,
     ClientUpdate,
     MarketingPostRequest,
     ProfessionalCreate,
+    ProfessionalUpdate,
     RecommendationRequest,
     ServiceCreate,
     ServiceUpdate,
@@ -35,15 +40,6 @@ from app.services.whatsapp_agent_service import process_whatsapp_message
 
 router = APIRouter()
 settings = get_settings()
-
-
-@router.get("/health")
-def health_check() -> dict:
-    return {
-        "status": "ok",
-        "message": "BeautyFlow AI API está funcionando.",
-        "timezone": settings.business_timezone,
-    }
 
 
 @router.post("/clients", response_model=Client)
@@ -73,8 +69,9 @@ def update_client(client_id: int, payload: ClientUpdate, session: Session = Depe
     return client
 
 
-@router.delete("/clients/{client_id}")
+@router.delete("/clients/{client_id}", dependencies=[Depends(require_admin)])
 def delete_client(client_id: int, session: Session = Depends(get_session)) -> dict:
+    lock_transaction(session, TransactionLock.SCHEDULE)
     client = session.get(Client, client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Cliente não encontrado.")
@@ -82,11 +79,15 @@ def delete_client(client_id: int, session: Session = Depends(get_session)) -> di
     if has_appointment:
         raise HTTPException(status_code=400, detail="Cliente possui agendamentos vinculados e não pode ser excluído.")
     session.delete(client)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="O cadastro está vinculado ao histórico do negócio.") from exc
     return {"message": "Cliente excluído com sucesso."}
 
 
-@router.post("/services", response_model=Service)
+@router.post("/services", response_model=Service, dependencies=[Depends(require_admin)])
 def create_service(payload: ServiceCreate, session: Session = Depends(get_session)) -> Service:
     service = Service(**payload.model_dump())
     session.add(service)
@@ -96,12 +97,14 @@ def create_service(payload: ServiceCreate, session: Session = Depends(get_sessio
 
 
 @router.get("/services", response_model=list[Service])
-def list_services(session: Session = Depends(get_session)) -> list[Service]:
-    return session.exec(select(Service).where(Service.active == True).order_by(Service.name)).all()  # noqa: E712
+def list_services(active_only: bool = True, session: Session = Depends(get_session)) -> list[Service]:
+    query = select(Service).order_by(Service.name)
+    return session.exec(query.where(Service.active.is_(True)) if active_only else query).all()
 
 
-@router.put("/services/{service_id}", response_model=Service)
+@router.put("/services/{service_id}", response_model=Service, dependencies=[Depends(require_admin)])
 def update_service(service_id: int, payload: ServiceUpdate, session: Session = Depends(get_session)) -> Service:
+    lock_transaction(session, TransactionLock.SCHEDULE)
     service = session.get(Service, service_id)
     if not service:
         raise HTTPException(status_code=404, detail="Serviço não encontrado.")
@@ -113,8 +116,9 @@ def update_service(service_id: int, payload: ServiceUpdate, session: Session = D
     return service
 
 
-@router.delete("/services/{service_id}")
+@router.delete("/services/{service_id}", dependencies=[Depends(require_admin)])
 def delete_service(service_id: int, session: Session = Depends(get_session)) -> dict:
+    lock_transaction(session, TransactionLock.SCHEDULE)
     service = session.get(Service, service_id)
     if not service:
         raise HTTPException(status_code=404, detail="Serviço não encontrado.")
@@ -124,7 +128,7 @@ def delete_service(service_id: int, session: Session = Depends(get_session)) -> 
     return {"message": "Serviço desativado com sucesso."}
 
 
-@router.post("/professionals", response_model=Professional)
+@router.post("/professionals", response_model=Professional, dependencies=[Depends(require_admin)])
 def create_professional(payload: ProfessionalCreate, session: Session = Depends(get_session)) -> Professional:
     professional = Professional(**payload.model_dump())
     session.add(professional)
@@ -134,8 +138,24 @@ def create_professional(payload: ProfessionalCreate, session: Session = Depends(
 
 
 @router.get("/professionals", response_model=list[Professional])
-def list_professionals(session: Session = Depends(get_session)) -> list[Professional]:
-    return session.exec(select(Professional).where(Professional.active == True).order_by(Professional.name)).all()  # noqa: E712
+def list_professionals(active_only: bool = True, session: Session = Depends(get_session)) -> list[Professional]:
+    query = select(Professional).order_by(Professional.name)
+    return session.exec(query.where(Professional.active.is_(True)) if active_only else query).all()
+
+
+@router.put("/professionals/{professional_id}", response_model=Professional, dependencies=[Depends(require_admin)])
+def update_professional(
+    professional_id: int, payload: ProfessionalUpdate, session: Session = Depends(get_session),
+) -> Professional:
+    lock_transaction(session, TransactionLock.SCHEDULE)
+    professional = session.get(Professional, professional_id)
+    if not professional:
+        raise HTTPException(status_code=404, detail="Profissional não encontrado.")
+    for field, value in payload.model_dump().items():
+        setattr(professional, field, value)
+    session.commit()
+    session.refresh(professional)
+    return professional
 
 
 @router.get("/appointments/availability")
@@ -162,6 +182,7 @@ def appointment_availability(
 
 @router.post("/appointments", response_model=Appointment)
 def create_appointment(payload: AppointmentCreate, session: Session = Depends(get_session)) -> Appointment:
+    lock_transaction(session, TransactionLock.SCHEDULE)
     client = session.get(Client, payload.client_id)
     service = session.get(Service, payload.service_id)
     professional = session.get(Professional, payload.professional_id)
@@ -186,6 +207,7 @@ def create_appointment(payload: AppointmentCreate, session: Session = Depends(ge
         service_id=payload.service_id,
         professional_id=payload.professional_id,
         scheduled_at=payload.scheduled_at,
+        duration_minutes=service.duration_minutes,
         final_price=payload.final_price if payload.final_price is not None else service.price,
         notes=payload.notes,
     )
@@ -206,9 +228,17 @@ def update_appointment_status(
     payload: AppointmentUpdateStatus,
     session: Session = Depends(get_session),
 ) -> Appointment:
+    lock_transaction(session, TransactionLock.SCHEDULE)
     appointment = session.get(Appointment, appointment_id)
     if not appointment:
         raise HTTPException(status_code=404, detail="Agendamento não encontrado.")
+    if payload.status == AppointmentStatus.scheduled and appointment.status != AppointmentStatus.scheduled:
+        error = appointment_slot_error(
+            session, appointment.professional_id, appointment.service_id, appointment.scheduled_at,
+            exclude_appointment_id=appointment.id, duration_minutes=appointment.duration_minutes,
+        )
+        if error:
+            raise HTTPException(status_code=409, detail=error)
     appointment.status = payload.status
     session.add(appointment)
     session.commit()
@@ -222,6 +252,7 @@ def reschedule_appointment(
     payload: AppointmentReschedule,
     session: Session = Depends(get_session),
 ) -> Appointment:
+    lock_transaction(session, TransactionLock.SCHEDULE)
     appointment = session.get(Appointment, appointment_id)
     if not appointment:
         raise HTTPException(status_code=404, detail="Agendamento não encontrado.")
@@ -234,6 +265,7 @@ def reschedule_appointment(
         appointment.service_id,
         payload.scheduled_at,
         exclude_appointment_id=appointment.id,
+        duration_minutes=appointment.duration_minutes,
     )
     if error:
         raise HTTPException(status_code=409, detail=error)
@@ -241,6 +273,23 @@ def reschedule_appointment(
     appointment.scheduled_at = payload.scheduled_at
     appointment.status = AppointmentStatus.scheduled
     session.add(appointment)
+    session.commit()
+    session.refresh(appointment)
+    return appointment
+
+
+@router.patch("/appointments/{appointment_id}", response_model=Appointment)
+def edit_appointment(
+    appointment_id: int, payload: AppointmentEdit, session: Session = Depends(get_session),
+) -> Appointment:
+    lock_transaction(session, TransactionLock.SCHEDULE)
+    appointment = session.get(Appointment, appointment_id)
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Agendamento não encontrado.")
+    if appointment.status != AppointmentStatus.scheduled:
+        raise HTTPException(status_code=409, detail="Apenas agendamentos ativos podem ser editados.")
+    appointment.notes = payload.notes
+    appointment.final_price = payload.final_price
     session.commit()
     session.refresh(appointment)
     return appointment
@@ -273,6 +322,9 @@ def recommendations(payload: RecommendationRequest, session: Session = Depends(g
 
 @router.post("/whatsapp/simulate")
 def whatsapp_simulate(payload: WhatsAppSimulationRequest, session: Session = Depends(get_session)) -> dict:
+    if os.getenv("APP_ENV", "development").strip().lower() == "production" or os.getenv("ENABLE_DEMO_SIMULATION") != "true":
+        raise HTTPException(status_code=404, detail="Simulador desativado.")
+    lock_transaction(session, TransactionLock.SCHEDULE)
     return process_whatsapp_message(session, payload.client_name, payload.client_phone, payload.message)
 
 
@@ -307,8 +359,14 @@ def simulate_campaign_send(campaign_id: int, session: Session = Depends(get_sess
 
 
 @router.post("/agent/tools")
-def agent_tools(payload: AgentToolRequest, session: Session = Depends(get_session)) -> dict:
-    return execute_agent_tool(session, payload)
+def agent_tools(
+    payload: AgentToolRequest,
+    session: Session = Depends(get_session),
+    actor: Account = Depends(current_account),
+) -> dict:
+    if payload.tool in ("book", "cancel", "reschedule"):
+        lock_transaction(session, TransactionLock.SCHEDULE)
+    return execute_agent_tool(session, payload, actor_id=actor.id)
 
 
 @router.get("/crm/summary")
