@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +16,8 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    create_db_and_tables()
+    if os.getenv("APP_ENV", "development").strip().lower() != "production":
+        create_db_and_tables()
     yield
 
 
@@ -35,3 +37,9 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix=settings.api_prefix, dependencies=[Depends(require_api_key)])
+
+
+@app.get("/healthz", include_in_schema=False)
+def deployment_health() -> dict[str, str]:
+    return {"status": "ok"}
+
