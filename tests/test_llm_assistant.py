@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import requests
+
 from app.services import ai_service
 
 
@@ -25,3 +27,16 @@ def test_ai_endpoint_calls_provider(client, monkeypatch):
     response = client.post("/api/ai/chat", json={"question": "Como reduzir faltas?", "business_context": "Salão"})
     assert response.status_code == 200
     assert response.json()["answer"] == "Use lembretes de agendamento."
+
+
+def test_provider_timeout_returns_safe_error(client, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-provider-key")
+
+    def fail(*args, **kwargs):
+        assert kwargs["timeout"] == (5, 25)
+        raise requests.Timeout("fake-provider-key")
+
+    monkeypatch.setattr(ai_service.requests, "post", fail)
+    response = client.post("/api/ai/chat", json={"question": "Como reduzir faltas?"})
+    assert response.status_code == 503
+    assert "fake-provider-key" not in response.text

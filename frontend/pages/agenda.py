@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
-from zoneinfo import ZoneInfo
+from app.core.time import business_timezone
 
 import pandas as pd
 import streamlit as st
@@ -9,7 +9,7 @@ import streamlit as st
 from frontend.api_client import BeautyFlowAPIError, api_get, api_patch, api_post, format_currency
 from frontend.pages.dashboard import _calendar, _local_date, _local_time
 
-TZ = ZoneInfo('America/Sao_Paulo')
+TZ = business_timezone()
 
 STATUS_OPTIONS = {
     "Agendado": "scheduled",
@@ -25,72 +25,49 @@ def render() -> None:
     st.markdown('<div class="bf-eyebrow">BEAUTYFLOW / AGENDA</div><h1 class="bf-title">Sua agenda, no seu ritmo.</h1><p class="bf-subtitle">Organize atendimentos e encontre horários livres.</p>', unsafe_allow_html=True)
 
     clients = api_get("/clients")
-    services = api_get("/services")
-    professionals = api_get("/professionals")
+    services = api_get("/services", params={"active_only": False})
+    professionals = api_get("/professionals", params={"active_only": False})
     appointments = api_get("/appointments")
 
     client_map = {f"{item['name']} · ID {item['id']}": item for item in clients}
-    service_map = {f"{item['name']} · {format_currency(item['price'])}": item for item in services}
-    professional_map = {f"{item['name']} · {item['specialty']}": item for item in professionals}
+    service_map = {
+        f"{item['name']} · {format_currency(item['price'])} · #{item['id']}": item
+        for item in services if item["active"]
+    }
+    professional_map = {
+        f"{item['name']} · {item['specialty']} · #{item['id']}": item
+        for item in professionals if item["active"]
+    }
 
     with st.container(border=True):
         st.markdown("### Novo agendamento")
-        if not clients or not services or not professionals:
-            st.warning("Cadastre pelo menos um cliente, um serviço e um profissional antes de criar agendamentos.")
+        if not client_map or not service_map or not professional_map:
+            st.warning("Cadastre pelo menos um cliente, um serviço e um profissional ativos.")
         else:
-            with st.form("appointment_create", clear_on_submit=False):
-                c1, c2, c3 = st.columns(3)
-                selected_client = c1.selectbox("Cliente", list(client_map.keys()))
-                selected_service = c2.selectbox("Serviço", list(service_map.keys()))
-                selected_professional = c3.selectbox("Profissional", list(professional_map.keys()))
-                scheduled_date = c1.date_input("Data", value=datetime.now(TZ).date() + timedelta(days=1))
-                scheduled_time = c2.time_input("Horário", value=time(14, 0))
-                final_price = c3.number_input(
-                    "Preço final",
-                    min_value=0.0,
-                    value=float(service_map[selected_service]["price"]),
-                    step=10.0,
-                )
-                notes = st.text_area("Observações", placeholder="Ex: cliente prefere atendimento pela manhã")
-
-                if st.form_submit_button("Criar agendamento"):
-                    try:
-                        api_post(
-                            "/appointments",
-                            json={
-                                "client_id": client_map[selected_client]["id"],
-                                "service_id": service_map[selected_service]["id"],
-                                "professional_id": professional_map[selected_professional]["id"],
-                                "scheduled_at": datetime.combine(scheduled_date, scheduled_time).isoformat(),
-                                "final_price": float(final_price),
-                                "notes": notes or None,
-                            },
-                        )
-                    except BeautyFlowAPIError as exc:
-                        st.error(str(exc))
-                    else:
-                        st.success("Agendamento criado com sucesso.")
+            c1, c2, c3 = st.columns(3)
+            client = client_map[c1.selectbox("Cliente", list(client_map))]
+            service = service_map[c2.selectbox("Serviço", list(service_map))]
+            professional = professional_map[c3.selectbox("Profissional", list(professional_map))]
+            day = st.date_input("Data", value=datetime.now(TZ).date() + timedelta(days=1))
+            slots = api_get("/appointments/availability", params={
+                "professional_id": professional["id"],
+                "service_id": service["id"],
+                "target_date": day.isoformat(),
+            })["slots"]
+            if not slots:
+                st.info("Nenhum horário livre nessa data.")
+            else:
+                with st.form("appointment_create"):
+                    slot = st.selectbox("Horário livre", slots, format_func=lambda value: datetime.fromisoformat(value).strftime("%H:%M"))
+                    price = st.number_input("Preço final", min_value=0.0, value=float(service["price"]), key=f"price_{service['id']}")
+                    notes = st.text_area("Observações", max_chars=2000)
+                    if st.form_submit_button("Criar agendamento"):
+                        api_post("/appointments", json={
+                            "client_id": client["id"], "service_id": service["id"],
+                            "professional_id": professional["id"], "scheduled_at": slot,
+                            "final_price": price, "notes": notes or None,
+                        })
                         st.rerun()
-
-            selected_service_data = service_map[selected_service]
-            selected_professional_data = professional_map[selected_professional]
-            try:
-                availability = api_get(
-                    "/appointments/availability",
-                    params={
-                        "professional_id": selected_professional_data["id"],
-                        "service_id": selected_service_data["id"],
-                        "target_date": scheduled_date.isoformat(),
-                    },
-                )
-                slots = availability.get("slots", [])
-                if slots:
-                    labels = [datetime.fromisoformat(slot).strftime("%H:%M") for slot in slots[:12]]
-                    st.caption("Horários livres nessa data: " + " · ".join(labels))
-                else:
-                    st.caption("Nenhum horário livre encontrado para essa combinação.")
-            except BeautyFlowAPIError as exc:
-                st.warning(f"Não foi possível consultar horários livres: {exc}")
 
     st.markdown("### Visão da agenda")
     with st.container(border=True):
@@ -177,4 +154,19 @@ def render() -> None:
                 st.error(str(exc))
             else:
                 st.success("Agendamento reagendado com sucesso.")
+                st.rerun()
+
+
+    active = [item for item in appointments if item["status"] == "scheduled"]
+    if active:
+        st.markdown("### Editar agendamento")
+        appointment = st.selectbox(
+            "Agendamento para editar", active,
+            format_func=lambda item: f"#{item['id']} · {clients_by_id.get(item['client_id'], 'Cliente')}",
+        )
+        with st.form(f"appointment_edit_{appointment['id']}"):
+            value = st.number_input("Preço final", min_value=0.0, value=float(appointment["final_price"]))
+            notes = st.text_area("Observações", value=appointment.get("notes") or "", max_chars=2000)
+            if st.form_submit_button("Salvar alterações"):
+                api_patch(f"/appointments/{appointment['id']}", json={"final_price": value, "notes": notes or None})
                 st.rerun()

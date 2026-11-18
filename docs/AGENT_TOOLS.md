@@ -1,18 +1,7 @@
-# Agent tools V1
+# Consultas e operações assistidas
 
-The endpoint `POST /api/agent/tools` provides deterministic tools for a future
-LLM-driven orchestrator: `list_services`, `find_client`, `availability`,
-`book`, and `cancel`.
+A aba **Dados do sistema** chama `POST /api/agent/tools` com a sessão da conta conectada. As ferramentas `list_services`, `find_client` e `availability` consultam registros do negócio.
 
-Booking and cancellation require a matching single-use `confirmation_token` issued
-by a prior preview call. The token expires in ten minutes and is bound to the
-exact request parameters. The client must send both `confirm=true` and the token.
-The first call returns `confirmation_required` without altering appointments.
+Para `book`, `cancel` e `reschedule`, o primeiro pedido retorna um resumo e um `confirmation_token`. Confira cliente, serviço, profissional, valor e horário. O cliente envia os mesmos parâmetros, `confirm: true` e o token para executar.
 
-This is an **API tool layer**, not yet an LLM agent, WhatsApp integration or
-security boundary for end-user authorization. The caller is still responsible for obtaining human confirmation. A token
-proves an earlier preview was requested, **not** that a real person approved.
-
-Before production usage, add individual identity, authorization checks,
-short-lived confirmation tokens tied to exact actions, persistent audit logs,
-idempotency keys, and concurrency-safe booking transactions.
+O token é específico da conta, da ação e do resumo revisado. Ele dura dez minutos e só pode ser usado uma vez. A transação valida novamente o estado da agenda e grava a reserva e o consumo do token juntos. A Mentora OpenAI opera como chat de orientação sem chamadas a essas ferramentas.

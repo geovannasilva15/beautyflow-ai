@@ -1,130 +1,65 @@
-# BeautyFlow
+# BeautyFlow AI
 
-Plataforma de gestão para salões, clínicas de estética e profissionais autônomos. O projeto centraliza agenda, clientes, serviços, campanhas e apoio ao atendimento em uma única aplicação.
+Painel para salões, clínicas de estética e profissionais autônomos. Reúne clientes, serviços, profissionais, agenda, indicadores e atendimento.
 
-## Visão do produto
+- A equipe entra com contas individuais de administrador ou profissional. Cada instalação usa um banco exclusivo para um negócio.
+- A agenda consulta disponibilidade e permite criar, editar, cancelar e reagendar atendimentos. O dashboard usa os registros do banco.
+- A Mentora de IA usa OpenAI quando configurada. Preços, clientes e horários são consultados em **Dados do sistema**. Ações assistidas exigem revisão e confirmação.
+- O WhatsApp tem uma caixa de entrada para números de teste. A equipe responde pelo painel e trata pedidos de agendamento na Agenda. Campanhas e modelos de texto são recursos locais.
 
-Negócios de beleza costumam distribuir informações entre agenda, mensagens, planilhas e anotações. O BeautyFlow reúne esses dados e transforma tarefas do dia a dia em fluxos organizados.
+## Instalação local
 
-## Funcionalidades
-
-- dashboard com clientes, agenda, receita e ticket médio;
-- cadastro e manutenção de clientes e serviços;
-- agenda com criação de horários e atualização de status;
-- recomendação de serviços conforme o perfil da cliente;
-- apoio à criação de mensagens e campanhas;
-- simulação de atendimento e agendamento por WhatsApp;
-- API documentada automaticamente;
-- testes dos principais fluxos da aplicação.
-
-## Arquitetura
-
-```mermaid
-flowchart LR
-    UI[Interface Streamlit] --> API[API FastAPI]
-    API --> DB[(SQLite)]
-    API --> REC[Recomendação]
-    API --> MSG[Atendimento e campanhas]
-```
-
-## Tecnologias
-
-`Python` `FastAPI` `Streamlit` `SQLModel` `SQLite` `Pandas` `Pytest` `HTTPX`
-
-## Executar localmente
+Use Python 3.12. Na raiz do repositório, crie o ambiente virtual.
 
 ```bash
 python -m venv .venv
 ```
 
-No Windows:
+No PowerShell, ative com `.\.venv\Scripts\Activate.ps1`. No Linux ou macOS, use `source .venv/bin/activate`. Copie `.env.example` para `.env` se precisar mudar as configurações locais.
+
+Com uma base nova, instale e prepare o banco.
 
 ```bash
-.venv\Scripts\activate
+python -m pip install -r requirements.txt
+python -m alembic upgrade head
+python -m app.manage_accounts bootstrap
 ```
 
-No Linux ou macOS:
+Digite o nome, e-mail e senha no terminal interativo. A senha precisa ter entre 16 e 128 caracteres. Se já houver uma base local, faça backup e consulte a seção de bases existentes no [guia de implantação](docs/DEPLOY_RENDER.md).
 
-```bash
-source .venv/bin/activate
-```
-
-Instale as dependências e prepare os dados:
-
-```bash
-pip install -r requirements.txt
-python seed.py
-```
-
-Inicie a API:
+Em dois terminais com o ambiente virtual ativo, inicie a API e o painel.
 
 ```bash
 python -m uvicorn app.main:app --reload
 ```
 
-Em outro terminal, inicie a interface:
-
 ```bash
 python -m streamlit run frontend/streamlit_app.py
 ```
 
-- Aplicação: `http://localhost:8501`
-- Documentação da API: `http://127.0.0.1:8000/docs`
+Entre em `http://localhost:8501` com a conta criada. Use **Minha conta** para cadastrar a equipe. Cada integrante troca a senha inicial no primeiro acesso.
 
-## Estrutura
-
-```text
-app/             API, banco, serviços e recomendação
-frontend/        interface e páginas da aplicação
-data/            dados demonstrativos
-knowledge_base/  conteúdo de apoio
-docs/            documentação do produto
-tests/           testes automatizados
-```
+Para um ambiente local descartável, `python seed.py` carrega dados fictícios. Use um arquivo SQLite dedicado e aplique as migrações antes de executar o comando.
 
 ## Testes
 
 ```bash
-python -m compileall app frontend tests seed.py
-pytest -q
+python -m compileall -q app frontend migrations tests seed.py
+python -m pytest -q
 ```
 
-Os testes usam um banco SQLite isolado e cobrem saúde da API, agendamentos,
-disponibilidade, proteção de acesso, CRM, ferramentas de agente e chamadas LLM
-simuladas em testes.
+Para incluir os testes de migração com PostgreSQL real, defina `TEST_POSTGRES_URL` com a URL de um banco descartável no qual a conta possa criar schemas. O GitHub Actions inicia um PostgreSQL para esses testes. As chamadas à OpenAI e à Meta são simuladas pela suíte.
 
-## Status real e como utilizar
+## Publicação e operação
 
-A branch `main` contém o MVP local. Para iniciar:
+O [guia do Render](docs/DEPLOY_RENDER.md) detalha os serviços, configuração, custos, criação da conta inicial, migração de bancos existentes, backup e teste de restauração. O Blueprint usa PostgreSQL. `/healthz` verifica a conexão e as tabelas da API.
 
-1. Clone o repositório e siga as instruções de instalação acima.
-2. Rode `python seed.py` apenas para carregar dados de demonstração.
-3. Inicie o FastAPI e o Streamlit em terminais separados.
-4. Acesse `http://localhost:8501`.
+- [Contas, sessões e permissões](docs/PLATFORM_SETUP.md)
+- [Mentora OpenAI e tratamento de falhas](docs/LLM_ASSISTANT.md)
+- [Ferramentas de consulta e confirmação](docs/AGENT_TOOLS.md)
+- [WhatsApp Cloud API em ambiente de teste](docs/WHATSAPP_CLOUD.md)
 
-O login disponibilizado na interface é **somente demonstrativo**, com
-credenciais públicas no código; não fornece autenticação segura.
-Não use dados pessoais reais nem publique esta versão diretamente na Internet.
-
-O assistente de texto usa um LLM real **somente** quando `OPENAI_API_KEY`
-está configurada no backend. Sem chave, o endpoint retorna erro explicativo.
-As ações determinísticas do agente são disponibilizadas pela API, com tokens
-temporários de confirmação, mas ainda não são chamadas autonomamente pelo LLM.
-
-O WhatsApp é uma **simulação local**: não envia mensagens reais.
-PostgreSQL, autenticação multiusuário, migrações de esquema, HTTPS, hospedagem,
-verificação de acesso e integração oficial com WhatsApp ainda precisam
-ser concluídos antes de um lançamento público.
-
-Consulte `docs/` para o contrato das ferramentas e a configuração da API.
-
-## Roadmap
-
-- autenticação multiusuário e RBAC com controle de acesso na API;
-- migrações Alembic e PostgreSQL em ambiente implantado;
-- orquestração de LLM com ferramentas de leitura e confirmação de ações;
-- integração WhatsApp Cloud API com webhooks e opt-in;
-- deploy seguro com observabilidade, backups e política de privacidade.
+O piloto usa dados fictícios. Antes de atender clientes reais, valide o ambiente hospedado, os backups, os controles de privacidade e as integrações com as contas oficiais. A recuperação de senha é feita pelo operador da instalação. O WhatsApp exige atendimento humano, número de teste e destinatários autorizados.
 
 ## Autoria
 

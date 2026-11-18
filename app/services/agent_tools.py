@@ -9,13 +9,13 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
+from app.core.time import ensure_utc, local_datetime_to_utc, utc_now, utc_to_business
 from app.db.models import AgentConfirmation, Appointment, AppointmentStatus, Client, Professional, Service
 from app.services.appointment_service import appointment_slot_error, get_available_slots
-from app.core.time import ensure_utc, utc_now, utc_to_business
 
 
 class AgentToolRequest(BaseModel):
-    tool: Literal["list_services", "find_client", "availability", "book", "cancel"]
+    tool: Literal["list_services", "find_client", "availability", "book", "cancel", "reschedule"]
     client_id: int | None = None
     service_id: int | None = None
     professional_id: int | None = None
@@ -26,124 +26,119 @@ class AgentToolRequest(BaseModel):
     confirmation_token: str | None = Field(default=None, max_length=200)
 
 
+def _confirmation(
+    session: Session, request: AgentToolRequest, actor_id: int, preview: dict,
+) -> dict | None:
+    args = request.model_dump(mode="json", exclude={"confirm", "confirmation_token"}, exclude_none=True)
+    if request.scheduled_at:
+        args["scheduled_at"] = local_datetime_to_utc(request.scheduled_at).isoformat()
+    digest = hashlib.sha256(json.dumps([actor_id, args, preview], sort_keys=True).encode()).hexdigest()
+    if not request.confirm:
+        token = secrets.token_urlsafe(32)
+        session.add(AgentConfirmation(
+            token_hash=hashlib.sha256(token.encode()).hexdigest(), action_hash=digest,
+            expires_at=utc_now() + timedelta(minutes=10),
+        ))
+        session.commit()
+        return {
+            "tool": request.tool, "status": "confirmation_required", "preview": preview,
+            "appointment_id": request.appointment_id, "confirmation_token": token, "expires_in_seconds": 600,
+        }
 
-def _fingerprint(request: AgentToolRequest) -> str:
-    data = request.model_dump(mode="json", exclude={"confirm", "confirmation_token"}, exclude_none=True)
-    if data.get("scheduled_at"):
-        from app.core.time import local_datetime_to_utc
-        data["scheduled_at"] = local_datetime_to_utc(request.scheduled_at).isoformat()
-    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
-
-
-def _preview_confirmation(session: Session, request: AgentToolRequest, preview: dict) -> dict:
-    token = secrets.token_urlsafe(32)
-    session.add(AgentConfirmation(
-        token_hash=hashlib.sha256(token.encode()).hexdigest(),
-        action_hash=_fingerprint(request),
-        expires_at=utc_now() + timedelta(minutes=10),
-    ))
-    session.commit()
-    return {"tool": request.tool, "status": "confirmation_required",
-            "confirmation_token": token, "expires_in_seconds": 600, **preview}
-
-
-def _consume_confirmation(session: Session, request: AgentToolRequest) -> bool:
-    if not request.confirmation_token:
-        return False
-    token_hash = hashlib.sha256(request.confirmation_token.encode()).hexdigest()
+    token_hash = hashlib.sha256((request.confirmation_token or "").encode()).hexdigest()
     confirmation = session.exec(
         select(AgentConfirmation).where(AgentConfirmation.token_hash == token_hash)
     ).first()
-    if not confirmation or confirmation.consumed or ensure_utc(confirmation.expires_at) <= utc_now():
-        return False
-    if confirmation.action_hash != _fingerprint(request):
-        return False
+    if (not confirmation or confirmation.consumed or confirmation.action_hash != digest
+            or ensure_utc(confirmation.expires_at) <= utc_now()):
+        return {"tool": request.tool, "status": "invalid_confirmation"}
     confirmation.consumed = True
-    session.add(confirmation)
-    session.flush()
-    return True
+    return None
 
-def execute_agent_tool(session: Session, request: AgentToolRequest) -> dict:
-    """Auditable deterministic tools; LLM-generated actions must never bypass confirmation."""
+
+def execute_agent_tool(session: Session, request: AgentToolRequest, actor_id: int) -> dict:
+    """Run system queries directly and require a matching preview for every assisted mutation."""
+    result = {"tool": request.tool}
     if request.tool == "list_services":
-        services = session.exec(select(Service).where(Service.active == True)).all()  # noqa: E712
-        return {"tool": request.tool, "status": "ok", "data": [
+        services = session.exec(select(Service).where(Service.active.is_(True)).order_by(Service.name)).all()
+        return {**result, "status": "ok", "data": [
             {"id": s.id, "name": s.name, "price": s.price, "duration_minutes": s.duration_minutes}
             for s in services
         ]}
 
     if request.tool == "find_client":
-        if not request.query:
-            return {"tool": request.tool, "status": "missing_input", "message": "Informe o nome da cliente."}
-        clients = session.exec(select(Client)).all()
-        matches = [c for c in clients if request.query.casefold() in c.name.casefold()]
-        return {"tool": request.tool, "status": "ok", "data": [
-            {"id": c.id, "name": c.name} for c in matches[:10]
-        ]}
+        if not request.query or not request.query.strip():
+            return {**result, "status": "missing_input", "message": "Informe o nome da cliente."}
+        clients = session.exec(select(Client).order_by(Client.name)).all()
+        matches = [c for c in clients if request.query.strip().casefold() in c.name.casefold()]
+        return {**result, "status": "ok", "data": [{"id": c.id, "name": c.name} for c in matches[:10]]}
 
     if request.tool == "availability":
         if not all([request.professional_id, request.service_id, request.scheduled_at]):
-            return {"tool": request.tool, "status": "missing_input", "message": "Informe serviço, profissional e data."}
+            return {**result, "status": "missing_input", "message": "Informe serviço, profissional e data."}
         professional = session.get(Professional, request.professional_id)
         service = session.get(Service, request.service_id)
         if not professional or not professional.active or not service or not service.active:
-            return {"tool": request.tool, "status": "not_found"}
-        target = request.scheduled_at.date()
+            return {**result, "status": "not_found"}
+        target = utc_to_business(local_datetime_to_utc(request.scheduled_at)).date()
         slots = get_available_slots(session, professional.id, service.id, target)
-        return {"tool": request.tool, "status": "ok", "slots": [s.isoformat() for s in slots]}
+        return {**result, "status": "ok", "slots": [s.isoformat() for s in slots]}
 
+    booking = None
     if request.tool == "book":
         if not all([request.client_id, request.service_id, request.professional_id, request.scheduled_at]):
-            return {"tool": request.tool, "status": "missing_input", "message": "Informe cliente, serviço, profissional e horário."}
+            return {**result, "status": "missing_input", "message": "Informe cliente, serviço, profissional e horário."}
         client = session.get(Client, request.client_id)
         service = session.get(Service, request.service_id)
         professional = session.get(Professional, request.professional_id)
         if not client or not service or not service.active or not professional or not professional.active:
-            return {"tool": request.tool, "status": "not_found"}
-        from app.core.time import local_datetime_to_utc
+            return {**result, "status": "not_found"}
         start = local_datetime_to_utc(request.scheduled_at)
-        error = appointment_slot_error(session, professional.id, service.id, start)
-        if error:
-            return {"tool": request.tool, "status": "unavailable", "message": error}
-        preview = {
-            "client": client.name,
-            "service": service.name,
-            "professional": professional.name,
-            "scheduled_at": utc_to_business(start).isoformat(),
-            "price": service.price,
-        }
-        if not request.confirm:
-            return _preview_confirmation(session, request, {"preview": preview})
-        if not _consume_confirmation(session, request):
-            return {"tool": request.tool, "status": "invalid_confirmation"}
         booking = Appointment(
-            client_id=client.id,
-            service_id=service.id,
-            professional_id=professional.id,
-            scheduled_at=start,
-            final_price=service.price,
-            notes="Agendamento confirmado via ferramenta do agente.",
+            client_id=client.id, service_id=service.id, professional_id=professional.id,
+            scheduled_at=start, final_price=service.price, duration_minutes=service.duration_minutes,
+            notes="Agendamento confirmado via ferramenta do assistente.",
         )
-        session.add(booking)
-        session.commit()
-        session.refresh(booking)
-        return {"tool": request.tool, "status": "created", "appointment_id": booking.id, "preview": preview}
-
-    if request.tool == "cancel":
-        if not request.appointment_id:
-            return {"tool": request.tool, "status": "missing_input", "message": "Informe o agendamento."}
+    else:
+        if not request.appointment_id or (request.tool == "reschedule" and not request.scheduled_at):
+            return {**result, "status": "missing_input", "message": "Informe o agendamento e, ao reagendar, o novo horário."}
         booking = session.get(Appointment, request.appointment_id)
         if not booking:
-            return {"tool": request.tool, "status": "not_found"}
+            return {**result, "status": "not_found"}
         if booking.status != AppointmentStatus.scheduled:
-            return {"tool": request.tool, "status": "invalid_status"}
-        if not request.confirm:
-            return _preview_confirmation(session, request, {"appointment_id": booking.id})
-        if not _consume_confirmation(session, request):
-            return {"tool": request.tool, "status": "invalid_confirmation"}
-        booking.status = AppointmentStatus.canceled
-        session.add(booking)
-        session.commit()
-        return {"tool": request.tool, "status": "canceled", "appointment_id": booking.id}
+            return {**result, "status": "invalid_status"}
+        client = session.get(Client, booking.client_id)
+        service = session.get(Service, booking.service_id)
+        professional = session.get(Professional, booking.professional_id)
+        if not client or not service or not professional:
+            return {**result, "status": "not_found"}
+        start = local_datetime_to_utc(request.scheduled_at) if request.tool == "reschedule" else booking.scheduled_at
 
-    return {"status": "unknown_tool"}
+    if request.tool != "cancel":
+        error = appointment_slot_error(
+            session, professional.id, service.id, start, exclude_appointment_id=booking.id,
+            duration_minutes=booking.duration_minutes,
+        )
+        if error:
+            return {**result, "status": "unavailable", "message": error}
+
+    preview = {
+        "client": client.name, "service": service.name, "professional": professional.name,
+        "scheduled_at": utc_to_business(start).isoformat(), "price": booking.final_price,
+        "duration_minutes": booking.duration_minutes or service.duration_minutes,
+    }
+    if request.tool == "reschedule":
+        preview["previous_at"] = utc_to_business(booking.scheduled_at).isoformat()
+    pending = _confirmation(session, request, actor_id, preview)
+    if pending:
+        return pending
+
+    if request.tool == "cancel":
+        booking.status = AppointmentStatus.canceled
+    else:
+        booking.scheduled_at = start
+    session.add(booking)
+    session.commit()
+    session.refresh(booking)
+    labels = {"book": "created", "cancel": "canceled", "reschedule": "rescheduled"}
+    return {**result, "status": labels[request.tool], "appointment_id": booking.id, "preview": preview}

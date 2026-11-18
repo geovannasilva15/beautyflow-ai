@@ -169,6 +169,8 @@ def _has_explicit_datetime_hint(text: str) -> bool:
 
 
 def _appointment_duration(session: Session, appointment: Appointment) -> int:
+    if appointment.duration_minutes is not None:
+        return appointment.duration_minutes
     service = session.get(Service, appointment.service_id)
     return service.duration_minutes if service else 60
 
@@ -222,6 +224,7 @@ def appointment_slot_error(
     service_id: int,
     scheduled_at: datetime,
     exclude_appointment_id: int | None = None,
+    duration_minutes: int | None = None,
 ) -> str | None:
     service = session.get(Service, service_id)
     professional = session.get(Professional, professional_id)
@@ -234,7 +237,8 @@ def appointment_slot_error(
     if scheduled_at <= utc_now():
         return "Escolha um horário futuro."
 
-    if not is_within_business_hours(scheduled_at, service.duration_minutes):
+    duration_minutes = duration_minutes or service.duration_minutes
+    if not is_within_business_hours(scheduled_at, duration_minutes):
         return (
             f"O atendimento precisa terminar dentro do horário de funcionamento "
             f"({settings.business_open_hour:02d}:00–{settings.business_close_hour:02d}:00)."
@@ -244,7 +248,7 @@ def appointment_slot_error(
         session,
         professional_id,
         scheduled_at,
-        service.duration_minutes,
+        duration_minutes,
         exclude_appointment_id=exclude_appointment_id,
     ):
         return "Esse horário conflita com outro atendimento do profissional."
@@ -364,6 +368,7 @@ def create_appointment_from_message(
         professional_id=professional.id,
         scheduled_at=scheduled_at,
         final_price=service.price,
+        duration_minutes=service.duration_minutes,
         notes="Criado pelo agente simulado de WhatsApp.",
     )
     session.add(appointment)
@@ -438,6 +443,7 @@ def reschedule_latest_appointment(
         appointment.service_id,
         requested_at,
         exclude_appointment_id=appointment.id,
+        duration_minutes=appointment.duration_minutes,
     )
     if error:
         slots = find_next_available_slots(

@@ -3,14 +3,14 @@ from __future__ import annotations
 import calendar
 from datetime import date, datetime, timezone
 from html import escape
-from zoneinfo import ZoneInfo
+from app.core.time import business_timezone
 
 import pandas as pd
 import streamlit as st
 
 from frontend.api_client import api_get, format_currency
 
-TZ = ZoneInfo("America/Sao_Paulo")
+TZ = business_timezone()
 
 
 def _local_date(value: str) -> date:
@@ -124,10 +124,10 @@ def render() -> None:
             st.markdown("### Acesso rápido")
             st.caption("Ações do seu dia a dia.")
             if st.button("Abrir agenda", use_container_width=True, key="dash_agenda"):
-                st.session_state["bf_page"] = "Agenda"
+                st.session_state["navigate_to"] = "Agenda"
                 st.rerun()
             if st.button("Ver clientes", use_container_width=True, key="dash_clients"):
-                st.session_state["bf_page"] = "Clientes"
+                st.session_state["navigate_to"] = "Clientes"
                 st.rerun()
 
     c1, c2, c3 = st.columns(3)

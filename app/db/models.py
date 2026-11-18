@@ -69,6 +69,7 @@ class Appointment(SQLModel, table=True):
     client_id: int = Field(foreign_key="client.id", index=True)
     service_id: int = Field(foreign_key="service.id", index=True)
     professional_id: int = Field(foreign_key="professional.id", index=True)
+    duration_minutes: int | None = None
     scheduled_at: datetime = Field(index=True)
     final_price: float = 0.0
     status: AppointmentStatus = Field(default=AppointmentStatus.scheduled, index=True)
@@ -116,3 +117,36 @@ class AgentConfirmation(SQLModel, table=True):
     expires_at: datetime
     consumed: bool = False
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class Account(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    email: str = Field(unique=True, index=True, max_length=254)
+    name: str = Field(max_length=120)
+    password_hash: str = Field(max_length=160)
+    role: str = Field(max_length=16)
+    active: bool = True
+    must_change_password: bool = False
+
+
+class LoginSession(SQLModel, table=True):
+    token_hash: str = Field(primary_key=True, max_length=64)
+    account_id: int = Field(foreign_key="account.id", index=True)
+    expires_at: datetime = Field(index=True)
+
+
+class LoginLimit(SQLModel, table=True):
+    key: str = Field(primary_key=True, max_length=64)
+    attempts: int = 0
+    expires_at: datetime = Field(index=True)
+
+
+class WhatsAppMessage(SQLModel, table=True):
+    provider_id: str = Field(primary_key=True, max_length=255)
+    sender: str = Field(max_length=15)
+    body: str
+    received_at: datetime = Field(index=True)
+    intent: str = Field(max_length=24)
+    reply_status: str = Field(default="pending", max_length=16)
+    reply_text: str | None = None
+    reply_provider_id: str | None = Field(default=None, max_length=255)

@@ -70,11 +70,13 @@ def render() -> None:
                         api_put(f"/clients/{client_id}", json={"name": name, "phone": phone, "email": email or None, "interests": interests or None})
                         st.success("Atualizado.")
                         st.rerun()
-            with st.expander("Excluir"):
-                if st.button("Excluir cliente", key=f"del{client_id}"):
-                    try:
-                        api_delete(f"/clients/{client_id}")
-                        st.success("Excluído.")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"Erro: {exc}")
+            if st.session_state.user["role"] == "admin":
+                with st.expander("Excluir"):
+                    with st.form(f"delete_{client_id}"):
+                        confirm = st.checkbox("Confirmo a exclusão deste cadastro")
+                        if st.form_submit_button("Excluir cliente"):
+                            if confirm:
+                                api_delete(f"/clients/{client_id}")
+                                st.rerun()
+                            else:
+                                st.warning("Confirme a exclusão para continuar.")
